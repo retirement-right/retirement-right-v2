@@ -1,0 +1,162 @@
+{
+  "_comment": "Fixture 3 — Thompson composite client. Purpose: exercise every engine code path not covered by Abel or Eberhardt. Robert is still working with active 401k + employer match + Roth + catch-up. Susan retired first (Scenario C). Pension with COLA. Inherited IRA. Roth IRA. Rental income. Annuity asset + income. No SS for Robert (government employee), SS collecting for Susan. Texas = no state income tax. retirement_date_known = false for Robert (age estimate used).",
+
+  "schema_version": "2.0",
+
+  "meta": {
+    "analysis_date": "2025-03-15",
+    "prepared_by": "Retirement-Right Advisor",
+    "firm_name": "Retirement-Right Advisory",
+    "firm_address": "1820 E Ray Road, Suite A-108, Chandler, AZ 85225",
+    "report_title": "Comprehensive Retirement Blueprint",
+    "confidential": true,
+    "notes": "Robert is a Texas state employee — no Social Security, covered by TRS pension. Susan took early retirement at 62 and is already collecting SS. Robert plans to retire around age 65 but exact date not set. Inherited IRA from Susan's mother, inherited 2022.",
+    "legacy_notes": "Estate split equally between three adult children. Charitable remainder trust under consideration."
+  },
+
+  "client": {
+    "first_name": "Robert",
+    "last_name": "Thompson",
+    "dob": "1965-08-10",
+    "state": "TX",
+    "filing_status": "married_filing_jointly",
+    "health": "excellent",
+    "planning_horizon_age": 90,
+    "retirement": {
+      "status": "working",
+      "date": null,
+      "date_known": false,
+      "retirement_age": 65
+    },
+    "employment": {
+      "annual_salary": 95000,
+      "annual_raise_pct": 0.03,
+      "contrib_401k_pct": 0.10,
+      "contrib_roth_401k_pct": 0.05,
+      "employer_match_pct": 0.50,
+      "employer_match_cap_pct": 0.06,
+      "apply_catchup": true
+    }
+  },
+
+  "spouse": {
+    "first_name": "Susan",
+    "last_name": "Thompson",
+    "dob": "1963-04-22",
+    "health": "good",
+    "planning_horizon_age": 92,
+    "retirement": {
+      "status": "retired",
+      "date": "2025-01-01",
+      "date_known": true,
+      "retirement_age": 62
+    },
+    "employment": null
+  },
+
+  "assumptions": {
+    "inflation_pct": 0.025,
+    "rate_of_return": 0.06,
+    "income_need_annual": 110000,
+    "tax_year": 2024,
+    "ss_taxable_pct": 0.85,
+    "projection_end_age": null
+  },
+
+  "income": {
+    "social_security": {
+      "client": {
+        "status": "not_started",
+        "monthly_benefit": null,
+        "file_age": null,
+        "cola_pct": 0.02,
+        "spousal_benefit": null
+      },
+      "spouse": {
+        "status": "collecting",
+        "monthly_benefit": 1850,
+        "file_age": null,
+        "cola_pct": 0.02,
+        "spousal_benefit": null
+      }
+    },
+
+    "pension": {
+      "client": {
+        "monthly_amount": 3800,
+        "cola_pct": 0.015,
+        "start_age": 65,
+        "lump_sum_option": null
+      },
+      "spouse": null
+    },
+
+    "rental": {
+      "annual_amount": 24000,
+      "cola_pct": 0.02
+    },
+
+    "annuity": {
+      "annual_income": 12000,
+      "start_age": 65,
+      "cola_pct": 0.0,
+      "taxable_pct": 0.60
+    },
+
+    "other_income": [
+      {
+        "label": "Part-time consulting",
+        "annual_amount": 18000,
+        "start_age": 60,
+        "end_age": 67,
+        "cola_pct": 0.0,
+        "taxable": true
+      }
+    ]
+  },
+
+  "assets": {
+    "ira_traditional": {
+      "client_balance": 285000,
+      "spouse_balance": 0
+    },
+
+    "ira_roth": {
+      "client_balance": 68000,
+      "spouse_balance": 42000
+    },
+
+    "ira_inherited": {
+      "balance": 175000,
+      "year_inherited": 2022,
+      "ten_year_rule": true,
+      "distribution_strategy": "even",
+      "must_distribute_by": 2032
+    },
+
+    "brokerage": {
+      "total_balance": 420000,
+      "sub_accounts": [
+        { "label": "Growth portfolio", "balance": 320000 },
+        { "label": "Bond ladder",      "balance": 100000 }
+      ]
+    },
+
+    "annuity_value": 185000,
+
+    "real_estate_equity": 340000,
+
+    "primary_home_value": 575000,
+
+    "cash_and_savings": {
+      "client_balance": 45000,
+      "spouse_balance": 28000
+    },
+
+    "other_assets": [
+      { "label": "TRS pension lump-sum value", "balance": 0,      "investable": false, "growth_rate": 0.0 },
+      { "label": "Collectibles / art",         "balance": 35000,  "investable": false, "growth_rate": 0.0 },
+      { "label": "HSA account",                "balance": 22000,  "investable": true,  "growth_rate": 0.04 }
+    ]
+  }
+}

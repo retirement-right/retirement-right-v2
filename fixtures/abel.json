@@ -1,0 +1,124 @@
+{
+  "schema_version": "2.0",
+
+  "meta": {
+    "analysis_date": "2024-07-12",
+    "prepared_by": "Retirement-Right Advisor",
+    "firm_name": "Retirement-Right Advisory",
+    "firm_address": "1820 E Ray Road, Suite A-108, Chandler, AZ 85225",
+    "report_title": "Retirement Income Analysis",
+    "confidential": true,
+    "notes": null,
+    "legacy_notes": null
+  },
+
+  "client": {
+    "first_name": "Mark",
+    "last_name": "Abel",
+    "dob": "1956-01-15",
+    "state": "AZ",
+    "filing_status": "married_filing_jointly",
+    "health": "good",
+    "planning_horizon_age": 98,
+    "retirement": {
+      "status": "working",
+      "date": "2026-01-01",
+      "date_known": true,
+      "retirement_age": 70
+    },
+    "employment": {
+      "annual_salary": 80000,
+      "annual_raise_pct": 0.02,
+      "contrib_401k_pct": 0.0,
+      "contrib_roth_401k_pct": 0.0,
+      "employer_match_pct": 0.0,
+      "employer_match_cap_pct": 0.0,
+      "apply_catchup": true
+    }
+  },
+
+  "spouse": {
+    "first_name": "Cheryl",
+    "last_name": "Abel",
+    "dob": "1959-03-20",
+    "health": "good",
+    "planning_horizon_age": 95,
+    "retirement": {
+      "status": "working",
+      "date": "2027-01-01",
+      "date_known": true,
+      "retirement_age": 68
+    },
+    "employment": {
+      "annual_salary": 40000,
+      "annual_raise_pct": 0.02,
+      "contrib_401k_pct": 0.0,
+      "contrib_roth_401k_pct": 0.0,
+      "employer_match_pct": 0.0,
+      "employer_match_cap_pct": 0.0,
+      "apply_catchup": true
+    }
+  },
+
+  "assumptions": {
+    "inflation_pct": 0.025,
+    "rate_of_return": 0.04,
+    "income_need_annual": 80000,
+    "tax_year": 2024,
+    "ss_taxable_pct": 0.85,
+    "projection_end_age": null
+  },
+
+  "income": {
+    "social_security": {
+      "client": {
+        "status": "file_at_age",
+        "monthly_benefit": 3000,
+        "file_age": 70,
+        "cola_pct": 0.015,
+        "spousal_benefit": null
+      },
+      "spouse": {
+        "status": "file_at_age",
+        "monthly_benefit": 1764,
+        "file_age": 68,
+        "cola_pct": 0.015,
+        "spousal_benefit": null
+      }
+    },
+    "pension": null,
+    "rental": {
+      "annual_amount": 18180,
+      "cola_pct": 0.015
+    },
+    "annuity": null,
+    "other_income": null
+  },
+
+  "assets": {
+    "ira_traditional": {
+      "client_balance": 74825,
+      "spouse_balance": 34511
+    },
+    "ira_roth": {
+      "client_balance": 0,
+      "spouse_balance": 0
+    },
+    "ira_inherited": null,
+    "brokerage": {
+      "total_balance": 370164,
+      "sub_accounts": null
+    },
+    "annuity_value": null,
+    "real_estate_equity": null,
+    "primary_home_value": null,
+    "cash_and_savings": {
+      "client_balance": 84636,
+      "spouse_balance": 4000
+    },
+    "other_assets": [
+      { "label": "Other — Client", "balance": 50000, "investable": true, "growth_rate": 0.0 },
+      { "label": "Other — Spouse", "balance": 9000,  "investable": true, "growth_rate": 0.0 }
+    ]
+  }
+}
