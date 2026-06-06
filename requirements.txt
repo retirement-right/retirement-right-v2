@@ -1,6 +1,6 @@
-fastapi==0.111.0
-uvicorn[standard]==0.29.0
-python-multipart==0.0.9
+fastapi
+uvicorn[standard]
+python-multipart
 reportlab==4.2.0
-jsonschema==4.22.0
-pydantic==2.7.1
+jsonschema
+pydantic
