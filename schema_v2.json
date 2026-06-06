@@ -1,0 +1,328 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "retirement-right-schema-v2",
+  "title": "Retirement-Right Client Data Schema v2",
+  "description": "Complete client data model for the Retirement-Right Financial Architecture platform. Supports single filers, married couples, working clients, fully retired clients, and all combinations of income sources and asset types.",
+  "type": "object",
+  "required": ["schema_version", "meta", "client", "assumptions", "income", "assets"],
+
+  "properties": {
+
+    "schema_version": {
+      "type": "string",
+      "const": "2.0",
+      "description": "Schema version — must be '2.0' for v2 engine"
+    },
+
+    "meta": {
+      "type": "object",
+      "description": "Report metadata — does not affect calculations",
+      "required": ["analysis_date", "prepared_by", "firm_name"],
+      "properties": {
+        "analysis_date":     { "type": "string", "format": "date", "description": "ISO date of analysis e.g. '2024-07-12'. Drives first-year proration." },
+        "prepared_by":       { "type": "string", "description": "Advisor name" },
+        "firm_name":         { "type": "string", "description": "Firm name for report header" },
+        "firm_address":      { "type": ["string","null"] },
+        "firm_phone":        { "type": ["string","null"] },
+        "report_title":      { "type": ["string","null"], "description": "Override default report title if desired" },
+        "confidential":      { "type": "boolean", "default": true },
+        "notes":             { "type": ["string","null"], "description": "Free-form advisor notes shown on report" },
+        "legacy_notes":      { "type": ["string","null"], "description": "Legacy / estate disposition notes" }
+      }
+    },
+
+    "client": {
+      "type": "object",
+      "description": "Client identity and retirement timing",
+      "required": ["first_name", "last_name", "dob", "filing_status"],
+      "properties": {
+        "first_name":   { "type": "string" },
+        "last_name":    { "type": "string" },
+        "dob":          { "type": "string", "format": "date", "description": "Date of birth ISO e.g. '1956-01-15'" },
+        "state":        { "type": ["string","null"], "description": "2-letter state code for state tax calculation e.g. 'AZ'" },
+        "filing_status": {
+          "type": "string",
+          "enum": ["married_filing_jointly", "single", "married_filing_separately", "head_of_household"]
+        },
+        "health":       { "type": ["string","null"], "enum": ["excellent","good","fair","poor",null] },
+        "planning_horizon_age": {
+          "type": ["integer","null"],
+          "description": "Age to project to for this client. Null = use life expectancy table."
+        },
+        "retirement": {
+          "type": "object",
+          "description": "Retirement date — exact date or estimated from age",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["working", "retired"],
+              "description": "Current employment status at analysis date"
+            },
+            "date": {
+              "type": ["string","null"],
+              "format": "date",
+              "description": "Exact retirement date if known e.g. '2026-06-30'. Null if using age estimate."
+            },
+            "date_known": {
+              "type": "boolean",
+              "description": "True = use exact date. False = estimate from retirement_age + DOB."
+            },
+            "retirement_age": {
+              "type": ["integer","null"],
+              "description": "Fallback if date not known. Engine estimates retirement_date as birthday month of this age-year."
+            }
+          }
+        },
+        "employment": {
+          "type": ["object","null"],
+          "description": "Only required if retirement.status = 'working'",
+          "properties": {
+            "annual_salary":        { "type": "number", "description": "Current full-year gross salary" },
+            "annual_raise_pct":     { "type": "number", "description": "Expected annual raise as decimal e.g. 0.02 = 2%" },
+            "contrib_401k_pct":     { "type": "number", "description": "Employee 401k contribution as % of salary e.g. 0.10" },
+            "contrib_roth_401k_pct":{ "type": "number", "default": 0, "description": "Roth 401k % — shares the IRS annual limit with traditional" },
+            "employer_match_pct":   { "type": "number", "description": "Employer match rate e.g. 0.50 = 50 cents per dollar contributed" },
+            "employer_match_cap_pct":{ "type": "number", "description": "Max salary % employer will match e.g. 0.06 = match on first 6% of salary" },
+            "apply_catchup":        { "type": "boolean", "default": true, "description": "If true and age >= 50, apply IRS catch-up contribution limit" }
+          }
+        }
+      }
+    },
+
+    "spouse": {
+      "type": ["object","null"],
+      "description": "Spouse data — null if single filer",
+      "properties": {
+        "first_name":   { "type": "string" },
+        "last_name":    { "type": "string" },
+        "dob":          { "type": "string", "format": "date" },
+        "health":       { "type": ["string","null"], "enum": ["excellent","good","fair","poor",null] },
+        "planning_horizon_age": { "type": ["integer","null"] },
+        "retirement": {
+          "type": "object",
+          "description": "Independent retirement date from client — can be before, same, or after",
+          "properties": {
+            "status":         { "type": "string", "enum": ["working","retired"] },
+            "date":           { "type": ["string","null"], "format": "date" },
+            "date_known":     { "type": "boolean" },
+            "retirement_age": { "type": ["integer","null"] }
+          }
+        },
+        "employment": {
+          "type": ["object","null"],
+          "description": "Only required if spouse retirement.status = 'working'",
+          "properties": {
+            "annual_salary":         { "type": "number" },
+            "annual_raise_pct":      { "type": "number" },
+            "contrib_401k_pct":      { "type": "number" },
+            "contrib_roth_401k_pct": { "type": "number", "default": 0 },
+            "employer_match_pct":    { "type": "number" },
+            "employer_match_cap_pct":{ "type": "number" },
+            "apply_catchup":         { "type": "boolean", "default": true }
+          }
+        }
+      }
+    },
+
+    "assumptions": {
+      "type": "object",
+      "required": ["inflation_pct", "rate_of_return", "income_need_annual"],
+      "properties": {
+        "inflation_pct":        { "type": "number", "description": "Annual inflation on spending need e.g. 0.025" },
+        "rate_of_return":       { "type": "number", "description": "Annual portfolio growth rate e.g. 0.04" },
+        "income_need_annual":   { "type": "number", "description": "Annual spending need in analysis-date dollars" },
+        "tax_year":             { "type": "integer", "default": 2024, "description": "IRS bracket year to use for tax estimates" },
+        "ss_taxable_pct":       { "type": "number", "default": 0.85, "description": "Portion of SS treated as federally taxable" },
+        "projection_end_age":   { "type": ["integer","null"], "description": "Override age to end projection. Null = use planning_horizon_age or 90." }
+      }
+    },
+
+    "income": {
+      "type": "object",
+      "description": "All recurring income sources",
+      "properties": {
+
+        "social_security": {
+          "type": "object",
+          "properties": {
+            "client": {
+              "type": ["object","null"],
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": ["not_started","collecting","file_at_age"],
+                  "description": "not_started = not yet filed and no plan set. collecting = already receiving. file_at_age = will file at specified age."
+                },
+                "monthly_benefit":  { "type": ["number","null"], "description": "Current or projected monthly benefit at filing age" },
+                "file_age":         { "type": ["integer","null"], "description": "Age client will file. Required if status = file_at_age." },
+                "cola_pct":         { "type": "number", "default": 0.015, "description": "Annual SS COLA e.g. 0.015" },
+                "spousal_benefit":  { "type": ["number","null"], "description": "Monthly spousal add-on if applicable" }
+              }
+            },
+            "spouse": {
+              "type": ["object","null"],
+              "properties": {
+                "status":           { "type": "string", "enum": ["not_started","collecting","file_at_age"] },
+                "monthly_benefit":  { "type": ["number","null"] },
+                "file_age":         { "type": ["integer","null"] },
+                "cola_pct":         { "type": "number", "default": 0.015 },
+                "spousal_benefit":  { "type": ["number","null"] }
+              }
+            }
+          }
+        },
+
+        "pension": {
+          "type": ["object","null"],
+          "properties": {
+            "client": {
+              "type": ["object","null"],
+              "properties": {
+                "monthly_amount":   { "type": "number" },
+                "cola_pct":         { "type": "number", "default": 0 },
+                "start_age":        { "type": "integer" },
+                "lump_sum_option":  { "type": ["number","null"] }
+              }
+            },
+            "spouse": {
+              "type": ["object","null"],
+              "properties": {
+                "monthly_amount":   { "type": "number" },
+                "cola_pct":         { "type": "number", "default": 0 },
+                "start_age":        { "type": "integer" },
+                "lump_sum_option":  { "type": ["number","null"] }
+              }
+            }
+          }
+        },
+
+        "rental": {
+          "type": ["object","null"],
+          "properties": {
+            "annual_amount":  { "type": "number", "description": "Current annual net rental income" },
+            "cola_pct":       { "type": "number", "default": 0.015, "description": "Annual rental income growth rate" }
+          }
+        },
+
+        "annuity": {
+          "type": ["object","null"],
+          "description": "Fixed or variable annuity income — separate from annuity asset value",
+          "properties": {
+            "annual_income":  { "type": "number" },
+            "start_age":      { "type": "integer" },
+            "cola_pct":       { "type": "number", "default": 0 },
+            "taxable_pct":    { "type": "number", "default": 1.0 }
+          }
+        },
+
+        "other_income": {
+          "type": ["array","null"],
+          "description": "Any additional recurring income sources",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label":          { "type": "string" },
+              "annual_amount":  { "type": "number" },
+              "start_age":      { "type": "integer" },
+              "end_age":        { "type": ["integer","null"] },
+              "cola_pct":       { "type": "number", "default": 0 },
+              "taxable":        { "type": "boolean", "default": true }
+            }
+          }
+        }
+      }
+    },
+
+    "assets": {
+      "type": "object",
+      "description": "All current asset balances at analysis date",
+      "properties": {
+
+        "ira_traditional": {
+          "type": ["object","null"],
+          "description": "Traditional IRA / pre-tax 401k balances",
+          "properties": {
+            "client_balance":   { "type": "number", "default": 0 },
+            "spouse_balance":   { "type": "number", "default": 0 }
+          }
+        },
+
+        "ira_roth": {
+          "type": ["object","null"],
+          "properties": {
+            "client_balance":   { "type": "number", "default": 0 },
+            "spouse_balance":   { "type": "number", "default": 0 }
+          }
+        },
+
+        "ira_inherited": {
+          "type": ["object","null"],
+          "description": "Inherited IRA — subject to 10-year rule if inherited after Jan 1 2020",
+          "properties": {
+            "balance":              { "type": "number" },
+            "year_inherited":       { "type": "integer", "description": "Year original owner died" },
+            "ten_year_rule":        { "type": "boolean", "description": "True = post-SECURE Act, must distribute by year 10" },
+            "distribution_strategy":{ "type": "string", "enum": ["even","rmd_table","end_loaded"], "default": "even" },
+            "must_distribute_by":   { "type": ["integer","null"], "description": "Final year for full distribution (auto-calc from year_inherited + 10)" }
+          }
+        },
+
+        "brokerage": {
+          "type": ["object","null"],
+          "description": "Taxable investment / brokerage accounts",
+          "properties": {
+            "total_balance":    { "type": "number" },
+            "sub_accounts": {
+              "type": ["array","null"],
+              "description": "Optional breakdown of brokerage sub-accounts",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label":    { "type": "string" },
+                  "balance":  { "type": "number" }
+                }
+              }
+            }
+          }
+        },
+
+        "annuity_value": {
+          "type": ["number","null"],
+          "description": "Current surrender / market value of annuity contract (separate from annuity income)"
+        },
+
+        "real_estate_equity": {
+          "type": ["number","null"],
+          "description": "Investable real estate equity (rental property, not primary home)"
+        },
+
+        "primary_home_value": {
+          "type": ["number","null"],
+          "description": "Primary residence value — non-investable, shown in net worth only"
+        },
+
+        "cash_and_savings": {
+          "type": ["object","null"],
+          "properties": {
+            "client_balance":   { "type": "number", "default": 0 },
+            "spouse_balance":   { "type": "number", "default": 0 }
+          }
+        },
+
+        "other_assets": {
+          "type": ["array","null"],
+          "description": "Any other assets — business interests, collectibles, etc.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label":          { "type": "string" },
+              "balance":        { "type": "number" },
+              "investable":     { "type": "boolean", "default": true },
+              "growth_rate":    { "type": "number", "default": 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
