@@ -231,8 +231,8 @@ def build_working_page(story, client_data, projection, ctx):
 
     client    = client_data["client"]
     spouse    = client_data.get("spouse")
-    need_base = client_data["assumptions"]["income_need_annual"]
-    inflation = client_data["assumptions"]["inflation_pct"]
+    need_base = client_data["assumptions"].get("income_need_annual", client_data["assumptions"].get("annual_income_need", 80000))
+    inflation = client_data["assumptions"].get("inflation_pct", 0.025)
 
     story.append(page_header(
         ctx["pg"], ctx["total"], 'Working Years',
@@ -352,8 +352,8 @@ def build_retirement_page(story, client_data, projection, ctx):
         ctx["name"], ctx["date"], ctx["ss_info"]))
     ctx["pg"] += 1
 
-    need_base = client_data["assumptions"]["income_need_annual"]
-    inflation = client_data["assumptions"]["inflation_pct"]
+    need_base = client_data["assumptions"].get("income_need_annual", client_data["assumptions"].get("annual_income_need", 80000))
+    inflation = client_data["assumptions"].get("inflation_pct", 0.025)
     story.append(subbar(
         f'RETIREMENT YEARS  |  ${need_base:,.0f} base · {inflation*100:.1f}% inflation',
         'RMDs DRAWN FIRST — EXCESS SPLIT EVENLY WHEN RMDs INSUFFICIENT'))
@@ -455,8 +455,8 @@ def build_waterfall_page(story, client_data, projection, ctx):
     """Page 3 — Withdrawal waterfall"""
     years    = projection["years"]
     client   = client_data["client"]
-    need_base= client_data["assumptions"]["income_need_annual"]
-    inflation= client_data["assumptions"]["inflation_pct"]
+    need_base= client_data["assumptions"].get("income_need_annual", client_data["assumptions"].get("annual_income_need", 80000))
+    inflation= client_data["assumptions"].get("inflation_pct", 0.025)
     last_need= years[-1].get('spending_need', 0) if years else 0
 
     story.append(page_header(
