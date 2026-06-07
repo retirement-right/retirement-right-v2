@@ -48,6 +48,10 @@ def run_projection(client_data: dict) -> dict:
     client = client_data["client"]
     spouse = client_data.get("spouse")
 
+    # Normalize assumptions — convert percentage values to decimals if needed
+    client_data = dict(client_data)
+    client_data["assumptions"] = normalize_assumptions(client_data["assumptions"])
+
     # ── Step 1: Date engine — phase boundaries for all years ─────────────
     phase_table = build_phase_table(client_data)
 
@@ -186,3 +190,17 @@ if __name__ == "__main__":
     print(f"  Starting portfolio: ${s['starting_portfolio']:>14,.0f}")
     print(f"  Ending portfolio:   ${s['ending_portfolio']:>14,.0f}")
     print(f"{'='*70}\n")
+
+
+def normalize_assumptions(assumptions: dict) -> dict:
+    """
+    Normalize assumption values that may come in as percentages (e.g. 2.5)
+    instead of decimals (e.g. 0.025). Converts any value > 1 for rate fields.
+    """
+    a = dict(assumptions)
+    for key in ["inflation_pct", "rate_of_return", "ss_taxable_pct"]:
+        if key in a and a[key] is not None:
+            val = float(a[key])
+            if val > 1:  # came in as percentage — convert to decimal
+                a[key] = round(val / 100, 6)
+    return a
