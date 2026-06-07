@@ -54,8 +54,13 @@ POS       = colors.HexColor('#3B6D11')
 GHOST     = colors.HexColor('#F8F7F5')
 
 # ── Style factory ─────────────────────────────────────────────────────────────
-def ps(name, size=7, color=BLACK, align=TA_RIGHT, leading=None, bold=False):
-    fn = 'Helvetica-Bold' if bold else 'Helvetica'
+def ps(name, size=7, color=BLACK, align=TA_RIGHT, leading=None, bold=False, italic=False):
+    if bold:
+        fn = 'Helvetica-Bold'
+    elif italic:
+        fn = 'Helvetica-Oblique'
+    else:
+        fn = 'Helvetica'
     ld = leading or (size + 2)
     return ParagraphStyle(name, fontName=fn, fontSize=size,
                           textColor=color, leading=ld, alignment=align)
@@ -354,8 +359,9 @@ def build_retirement_page(story, client_data, projection, ctx):
 
     need_base = client_data["assumptions"].get("income_need_annual", client_data["assumptions"].get("annual_income_need", 80000))
     inflation = client_data["assumptions"].get("inflation_pct", 0.025)
+    if inflation > 1: inflation = inflation / 100
     story.append(subbar(
-        f'RETIREMENT YEARS  |  ${need_base:,.0f} base · {inflation*100:.1f}% inflation',
+        f'RETIREMENT YEARS  |  ${need_base:,.0f} base · {(inflation if inflation<=1 else inflation/100)*100:.1f}% inflation',
         'RMDs DRAWN FIRST — EXCESS SPLIT EVENLY WHEN RMDs INSUFFICIENT'))
     story.append(Spacer(1, 4))
     story.append(ai_note(
@@ -363,7 +369,18 @@ def build_retirement_page(story, client_data, projection, ctx):
         'IRS-required RMDs are taken first each year. When RMDs alone cover the gap the surplus reinvests. '
         'When RMDs are insufficient the additional amount is <b>split evenly</b> between client and spouse IRA accounts. '
         'Taxes are estimated on gross income including the taxable portion of SS and all IRA distributions.'))
-    story.append(Spacer(1, 4))
+    story.append(Spacer(1, 3))
+
+    # Show every year for first 20, then every 5 years after that
+    display_yrs = []
+    for i, r in enumerate(ret_yrs):
+        # Skip ghost rows where both clients are dead and no income
+        if not r.get('client_alive', True) and not r.get('spouse_alive', True):
+            continue
+        if i < 20:
+            display_yrs.append((r, False))
+        elif (i - 20) % 5 == 0:
+            display_yrs.append((r, True))  # True = 5-year marker
 
     ratios = [0.068,0.062,0.062,0.060,0.065,0.065,0.075,0.068,0.068,0.068,0.075,0.075,0.069]
     CW = [PW * r for r in ratios]
@@ -398,7 +415,7 @@ def build_retirement_page(story, client_data, projection, ctx):
     ]
 
     odd = True
-    for r in ret_yrs:
+    for r, is_5yr in display_yrs:
         ri    = len(rows)
         c_ss  = r.get('client_ss', 0)
         s_ss  = r.get('spouse_ss', 0)
@@ -422,10 +439,13 @@ def build_retirement_page(story, client_data, projection, ctx):
             p(fmt(net), SGRN), p(fmt(need), SPRP),
             sc, p(fmt(mo), STD), p(fmt(port), SNVY),
         ])
-        bg   = WHITE if odd else GRAY_BG; odd = not odd
+        bg   = TEAL_LT if is_5yr else (WHITE if odd else GRAY_BG); odd = not odd
         gbg  = AMBER_LT if surp >= 0 else RED_LT
-        cmds += data_row_style(ri, bg, [((1,3), NAVY_LT), ((4,5), BLUE_LT),
+        cmds += data_row_style(ri, bg, [((1,3), NAVY_LT if not is_5yr else TEAL_LT),
+                                         ((4,5), BLUE_LT if not is_5yr else TEAL_LT),
                                          ((8,8), GREEN_LT), ((10,10), gbg), ((12,12), NAVY_LT)])
+        if is_5yr:
+            cmds += [('LINEABOVE', (0, ri), (-1, ri), 1.5, TEAL)]
     cmds += [('GRID', (0, 2), (-1, -1), 0.2, GRAY_LN),
              ('LINEAFTER', (3, 2), (3, -1), 1.0, NAVY),
              ('LINEAFTER', (5, 2), (5, -1), 1.0, BLUE),
@@ -664,12 +684,17 @@ def build_balances_page(story, client_data, projection, ctx):
         t.setStyle(TableStyle(t_cmds))
         return t
 
-    # Sample every other year for space
-    sampled = years[::2] if len(years) > 12 else years
+    # Sample every year (not every other year)
+    sampled = years
 
     rate = client_data["assumptions"].get("rate_of_return", 0.04)
     c_ira_rows, s_ira_rows, brok_rows, cash_rows = [], [], [], []
 
+    # Only show rows where account has activity (stop at depletion)
+    c_ira_depleted = False
+    s_ira_depleted = False
+    brok_depleted = False
+    cash_depleted = False
     for r in sampled:
         yr   = r["year"]
         c_ira_rows.append((yr,
@@ -689,22 +714,120 @@ def build_balances_page(story, client_data, projection, ctx):
             r.get("cash_earn", 0), r.get("cash_draw", 0),
             r.get("cash_close", 0)))
 
+    # Trim trailing all-zero rows from account tables
+    def trim_rows(rows):
+        while rows and rows[-1][1] == 0 and rows[-1][2] == 0 and rows[-1][3] == 0 and rows[-1][4] == 0 and rows[-1][5] == 0:
+            rows.pop()
+        return rows
+    c_ira_rows = trim_rows(c_ira_rows)
+    s_ira_rows = trim_rows(s_ira_rows)
+    brok_rows  = trim_rows(brok_rows)
+    cash_rows  = trim_rows(cash_rows)
+
     cname = client['first_name']
     sname = spouse['first_name'] if spouse else 'Spouse'
-    t1 = acct_tbl(f"{cname}'s IRA / 401k", NAVY,  NAVY_LT,  c_ira_rows)
-    t2 = acct_tbl(f"{sname}'s IRA",         TEAL,  TEAL_LT,  s_ira_rows)
-    t3 = acct_tbl("Joint Investments",      GREEN, GREEN_LT, brok_rows)
-    t4 = acct_tbl("Cash & Reserves",        BROWN, BROWN_LT, cash_rows)
 
-    grid = Table([[t1, t2, t3, t4]], colWidths=[PW / 4] * 4)
-    grid.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 0),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
-        ('TOPPADDING', (0, 0), (-1, -1), 0),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    # Check if each account has any activity
+    c_ira_has_data = any(r.get('client_ira_open',0) or r.get('client_ira_close',0) for r in years)
+    s_ira_has_data = any(r.get('spouse_ira_open',0) or r.get('spouse_ira_close',0) for r in years)
+    brok_has_data  = any(r.get('brokerage_open',0) or r.get('brokerage_close',0) for r in years)
+    cash_has_data  = any(r.get('cash_open',0) or r.get('cash_close',0) for r in years)
+
+    def make_na_tbl(title, color):
+        """Placeholder table for accounts with no data."""
+        cw_inner = PW / 2 - 8
+        t_rows = [
+            [p(title, ps('tt', color=WHITE, align=TA_CENTER, bold=True, size=6.5))],
+            [p('Opening · Earnings · Draws · Closing', ps('sb', color=colors.HexColor('#FFFFFFCC'), align=TA_CENTER, size=5.5))],
+            [p('N/A — No account balance', ps('na', color=MUTED, align=TA_CENTER, size=7, italic=True))],
+        ]
+        t_cmds = [
+            ('SPAN', (0,0), (-1,0)), ('SPAN', (0,1), (-1,1)), ('SPAN', (0,2), (-1,2)),
+            ('BACKGROUND', (0,0), (-1,1), color),
+            ('BACKGROUND', (0,2), (-1,2), GRAY_BG),
+            ('TOPPADDING', (0,0), (-1,-1), 6), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('LEFTPADDING', (0,0), (-1,-1), 4), ('RIGHTPADDING', (0,0), (-1,-1), 4),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ]
+        t = Table(t_rows, colWidths=[cw_inner])
+        t.setStyle(TableStyle(t_cmds))
+        return t
+
+    def acct_tbl_wide(title, color, lt, rows_data):
+        """Account table at half-page width (2 per row)."""
+        cw_inner = PW / 2 - 8
+        col_r = [0.18, 0.18, 0.14, 0.16, 0.17, 0.17]
+        cw = [cw_inner * r for r in col_r]
+        th  = ps('th',  color=WHITE,    align=TA_CENTER, bold=True, size=6)
+        thl = ps('thl', color=WHITE,    align=TA_LEFT,   bold=True, size=6)
+        vl  = ps('vl',  color=BLACK,    align=TA_RIGHT,  size=6)
+        dr  = ps('dr',  color=RED_TXT,  align=TA_RIGHT,  bold=True, size=6)
+        cl  = ps('cl',  color=NAVY_DK,  align=TA_RIGHT,  bold=True, size=6)
+        yl  = ps('yl',  color=MUTED,    align=TA_LEFT,   size=6)
+        er  = ps('er',  color=GREEN_DK, align=TA_RIGHT,  size=6)
+        cr  = ps('cr',  color=TEAL_DK,  align=TA_RIGHT,  bold=True, size=6)
+        t_rows, t_cmds = [], []
+        t_rows.append([p(title, ps('tt', color=WHITE, align=TA_CENTER, bold=True, size=6.5))])
+        t_rows.append([p('Opening · Earnings · Draws · Closing',
+                          ps('sb', color=colors.HexColor('#FFFFFFCC'), align=TA_CENTER, size=5.5))])
+        t_rows.append([p('Year', thl), p('Opening', th), p('Contrib.', th),
+                        p('Earn.', th), p('Drawn', th), p('Closing', th)])
+        t_cmds += [
+            ('SPAN', (0, 0), (-1, 0)), ('SPAN', (0, 1), (-1, 1)),
+            ('BACKGROUND', (0, 0), (-1, 1), color),
+            ('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#00000020')),
+            ('TOPPADDING', (0, 0), (-1, 2), 3), ('BOTTOMPADDING', (0, 0), (-1, 2), 3),
+            ('LEFTPADDING', (0, 0), (-1, 2), 3), ('RIGHTPADDING', (0, 0), (-1, 2), 3),
+            ('VALIGN', (0, 0), (-1, 2), 'MIDDLE'),
+        ]
+        odd = True
+        for row in rows_data:
+            yr, opn, contrib, earn, draw, close = row
+            ri = len(t_rows)
+            t_rows.append([
+                p(str(yr), yl), p(fmt(opn), vl),
+                p(fmt(contrib), cr) if contrib else p('—', vl),
+                p(fmt(earn), er),
+                p(f'({fmt(draw)})', dr) if draw else p('—', vl),
+                p(fmt(close), cl),
+            ])
+            bg = WHITE if odd else lt; odd = not odd
+            t_cmds += [
+                ('BACKGROUND', (0, ri), (-1, ri), bg),
+                ('BACKGROUND', (4, ri), (4, ri), RED_LT if draw else bg),
+                ('BACKGROUND', (5, ri), (5, ri), NAVY_LT),
+                ('TOPPADDING', (0, ri), (-1, ri), 2), ('BOTTOMPADDING', (0, ri), (-1, ri), 2),
+                ('LEFTPADDING', (0, ri), (-1, ri), 3), ('RIGHTPADDING', (0, ri), (-1, ri), 3),
+                ('VALIGN', (0, ri), (-1, ri), 'MIDDLE'),
+                ('LINEBELOW', (0, ri), (-1, ri), 0.2, GRAY_LN),
+            ]
+        t_cmds += [('GRID', (0, 2), (-1, -1), 0.2, GRAY_LN)]
+        t = Table(t_rows, colWidths=cw)
+        t.setStyle(TableStyle(t_cmds))
+        return t
+
+    t1 = acct_tbl_wide(f"{cname}'s IRA / 401k", NAVY,  NAVY_LT,  c_ira_rows) if c_ira_has_data else make_na_tbl(f"{cname}'s IRA / 401k", NAVY)
+    t2 = acct_tbl_wide(f"{sname}'s IRA",         TEAL,  TEAL_LT,  s_ira_rows) if s_ira_has_data else make_na_tbl(f"{sname}'s IRA", TEAL)
+    t3 = acct_tbl_wide("Joint Investments",      GREEN, GREEN_LT, brok_rows)  if brok_has_data  else make_na_tbl("Joint Investments", GREEN)
+    t4 = acct_tbl_wide("Cash & Reserves",        BROWN, BROWN_LT, cash_rows)  if cash_has_data  else make_na_tbl("Cash & Reserves", BROWN)
+
+    # 2 tables per row
+    row1 = Table([[t1, t2]], colWidths=[PW/2, PW/2])
+    row1.setStyle(TableStyle([
+        ('VALIGN',(0,0),(-1,-1),'TOP'),
+        ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),4),
+        ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
     ]))
-    story.append(grid)
+    row2 = Table([[t3, t4]], colWidths=[PW/2, PW/2])
+    row2.setStyle(TableStyle([
+        ('VALIGN',(0,0),(-1,-1),'TOP'),
+        ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),4),
+        ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
+    ]))
+    story.append(row1)
+    story.append(Spacer(1, 6))
+    story.append(row2)
+    story.append(Spacer(1, 8))
     story.append(Spacer(1, 6))
 
     # Combined reserves summary table
@@ -731,16 +854,18 @@ def build_balances_page(story, client_data, projection, ctx):
         thresholds.add('2M')
     crossed = set()
 
-    for i, r in enumerate(sampled):
+    for i, r in enumerate(years):
         ri    = len(r_rows)
         port  = r.get('total_portfolio', 0)
         mo    = r.get('net_monthly', 0)
+        yr    = r['year']
         is_ms = False
+        is_5yr = (i > 0 and i % 5 == 0)  # divider every 5 years
         if '1M' in thresholds and '1M' not in crossed and port >= 1000000:
             is_ms = True; crossed.add('1M')
         if '2M' in thresholds and '2M' not in crossed and port >= 2000000:
             is_ms = True; crossed.add('2M')
-        bg = AMBER_LT if is_ms else (WHITE if i % 2 == 0 else GRAY_BG)
+        bg = AMBER_LT if is_ms else (TEAL_LT if is_5yr else (WHITE if i % 2 == 0 else GRAY_BG))
         r_rows.append([
             p(str(r['year']), ryl),
             p(fmt(r.get('client_ira_close',0)), rv),
@@ -756,8 +881,11 @@ def build_balances_page(story, client_data, projection, ctx):
             ('BACKGROUND', (7, ri), (7, ri), NAVY_LT if not is_ms else AMBER_LT),
             ('TOPPADDING', (0, ri), (-1, ri), 3), ('BOTTOMPADDING', (0, ri), (-1, ri), 3),
             ('LEFTPADDING', (0, ri), (-1, ri), 5), ('RIGHTPADDING', (0, ri), (-1, ri), 5),
-            ('LINEBELOW', (0, ri), (-1, ri), 0.25, GRAY_LN),
         ]
+        if is_5yr:
+            rcmds += [('LINEABOVE', (0, ri), (-1, ri), 1.5, TEAL)]
+        else:
+            rcmds += [('LINEBELOW', (0, ri), (-1, ri), 0.25, GRAY_LN)]
     rcmds += [('GRID', (0, 0), (-1, -1), 0.2, GRAY_LN),
               ('LINEAFTER', (6, 0), (6, -1), 1.5, NAVY)]
     rcw = [PW * r for r in [0.07, 0.12, 0.12, 0.13, 0.12, 0.10, 0.09, 0.18, 0.10]]
@@ -771,7 +899,7 @@ def build_balances_page(story, client_data, projection, ctx):
     story.extend(footer_note(
         'All accounts earn the assumed rate of return annually. Contributions shown during working years. '
         'Withdrawals in red parentheses — sourced per waterfall page 3. '
-        'Amber rows = milestone portfolio crossings. Every other year shown — full detail available on request.'))
+        'Amber rows = milestone portfolio crossings. Teal dividers = every 5 years. All years shown.'))
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
@@ -1065,8 +1193,8 @@ def build_snapshot_page(story, client_data, projection, ctx):
         row("State", client.get("state","—")),
         row("Target Retirement Age", str(client.get("retirement",{}).get("retirement_age","—"))),
         row("Annual Spending Need", f"${assumptions.get('income_need_annual',0):,.0f}"),
-        row("Rate of Return", f"{assumptions.get('rate_of_return',0)*100:.1f}%"),
-        row("Inflation Rate", f"{assumptions.get('inflation_pct',0)*100:.1f}%"),
+        row("Rate of Return", f"{(assumptions.get('rate_of_return',0) if assumptions.get('rate_of_return',0) <= 1 else assumptions.get('rate_of_return',0)/100)*100:.1f}%"),
+        row("Inflation Rate", f"{(assumptions.get('inflation_pct',0) if assumptions.get('inflation_pct',0) <= 1 else assumptions.get('inflation_pct',0)/100)*100:.1f}%"),
     ]
     info_tbl = Table(client_rows, colWidths=[PW*0.28, PW*0.22])
     info_tbl.setStyle(TableStyle([
@@ -1242,7 +1370,7 @@ def build_income_tax_page(story, client_data, projection, ctx):
         info_row("Ending Portfolio", f"${summary['ending_portfolio']:,.0f}"),
         info_row("Projection Years", str(summary['projection_years'])),
     ]
-    port_tbl = Table(port_rows, colWidths=[PW*0.22, PW*0.12])
+    port_tbl = Table(port_rows, colWidths=[PW*0.20, PW*0.14])
     port_tbl.setStyle(TableStyle([
         ('GRID',(0,0),(-1,-1),0.3,GRAY_LN),
         ('ROWBACKGROUNDS',(0,0),(-1,-1),[WHITE,GRAY_BG]),
@@ -1256,12 +1384,12 @@ def build_income_tax_page(story, client_data, projection, ctx):
 
     three_col = Table([[
         Table([[p('Social Security Plan',ps('ssh',size=8,color=NAVY_DK,align=TA_LEFT,bold=True))],
-               [ss_tbl]], colWidths=[PW*0.37]),
+               [ss_tbl]], colWidths=[PW*0.36]),
         Table([[p('Lifetime Tax Summary',ps('tsh',size=8,color=AMBER_DK,align=TA_LEFT,bold=True))],
-               [tax_tbl]], colWidths=[PW*0.37]),
+               [tax_tbl]], colWidths=[PW*0.30]),
         Table([[p('Portfolio Summary',ps('psh',size=8,color=TEAL_DK,align=TA_LEFT,bold=True))],
-               [port_tbl]], colWidths=[PW*0.26]),
-    ]], colWidths=[PW*0.37, PW*0.37, PW*0.26])
+               [port_tbl]], colWidths=[PW*0.34]),
+    ]], colWidths=[PW*0.36, PW*0.30, PW*0.34])
     three_col.setStyle(TableStyle([
         ('VALIGN',(0,0),(-1,-1),'TOP'),
         ('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),6),
@@ -1322,17 +1450,18 @@ def build_income_projection_page(story, client_data, projection, ctx):
         filled_block = Paragraph('█' * min(filled, 40), bar_style)
         return filled_block
 
-    # Table columns
-    ratios = [0.06, 0.055, 0.07, 0.07, 0.07, 0.09, 0.08, 0.08, 0.08, 0.09, 0.15, 0.09]
+    # Table columns — removed bar chart column
+    ratios = [0.07, 0.065, 0.07, 0.07, 0.07, 0.075, 0.09, 0.085, 0.085, 0.085, 0.10, 0.10]
     CW = [PW * r for r in ratios]
 
     rows, cmds = [], []
     rows.append([
         p('Year', SWL), p(f'{cname} SS', SW), p(f'{sname} SS', SW),
         p('Pension/\nOther', SW), p('IRA/RMD\nDist.', SW),
+        p('Asset\nDraw', SW),
         p('Gross\nIncome', SW), p('Est.\nTaxes', SW),
         p('Net\nIncome', SW), p('Need', SW),
-        p('Surplus/\nGap', SW), p('Income vs Need', SW), p('Reserves', SW),
+        p('Surplus/\nGap', SW), p('Reserves', SW),
     ])
     cmds += [
         ('BACKGROUND',(0,0),(-1,0),NAVY),
@@ -1345,11 +1474,15 @@ def build_income_projection_page(story, client_data, projection, ctx):
     odd = True
     lifetime_ss = 0; lifetime_gross = 0; lifetime_taxes = 0; lifetime_net = 0
     for r in years:
+        # Skip ghost rows where both dead and no income
+        if not r.get('client_alive', True) and not r.get('spouse_alive', True) and r.get('gross_income', 0) == 0:
+            continue
         ri = len(rows)
         c_ss  = r.get("client_ss",0)
         s_ss  = r.get("spouse_ss",0)
         fixed = r.get("fixed_income",0)
         ira_d = r.get("ira_distributions",0)
+        asset_draw = r.get("brokerage_draw",0) + r.get("cash_draw",0) + r.get("real_estate_draw",0)
         gross = r.get("gross_income",0)
         taxes = r.get("total_tax",0)
         net   = r.get("net_income",0)
@@ -1368,10 +1501,10 @@ def build_income_projection_page(story, client_data, projection, ctx):
             p(f"{r['year']}\n{ages}", STL),
             p(fmt(c_ss), SNVY), p(fmt(s_ss), SNVY),
             p(fmt(fixed), SNVY), p(fmt(ira_d), SBLU),
+            p(fmt(asset_draw), SGRN) if asset_draw else p('—', STD),
             p(fmt(gross), STD), p(fmt(taxes), SAMB),
             p(fmt(net), SGRN), p(fmt(need), SPRP),
-            sc, bar(gross, max_gross, NAVY, width=int(PW*0.15*0.72)),
-            p(fmt(port), SNVY),
+            sc, p(fmt(port), SNVY),
         ])
         cmds += data_row_style(ri, bg, [((9,9), AMBER_LT if (surp or 0) >= 0 else RED_LT)])
 
@@ -1380,11 +1513,11 @@ def build_income_projection_page(story, client_data, projection, ctx):
     rows.append([
         p('Totals', ps('tot',color=BLACK,align=TA_LEFT,bold=True,size=6.5)),
         p(fmt(summary["lifetime_ss"]), SNVY), p('', STD),
-        p('', STD), p('', STD),
+        p('', STD), p('', STD), p('', STD),
         p(fmt(summary["lifetime_gross"]), STD),
         p(fmt(summary["lifetime_federal_tax"]+summary["lifetime_state_tax"]), SAMB),
         p(fmt(summary["lifetime_net"]), SGRN),
-        p('', STD), p('', STD), p('', STD),
+        p('', STD), p('', STD),
         p(fmt(summary["ending_portfolio"]), SNVY),
     ])
     cmds += [
@@ -1405,8 +1538,8 @@ def build_income_projection_page(story, client_data, projection, ctx):
     story.append(tbl)
     story.append(Spacer(1,5))
     story.extend(footer_note(
-        f'Assumptions: {client_data["assumptions"].get("rate_of_return",0)*100:.0f}% growth, '
-        f'{client_data["assumptions"].get("inflation_pct",0)*100:.1f}% inflation on spending, '
+        f'Assumptions: {(lambda v: v if v<=1 else v/100)(client_data["assumptions"].get("rate_of_return",0.04))*100:.1f}% growth, '
+        f'{(lambda v: v if v<=1 else v/100)(client_data["assumptions"].get("inflation_pct",0.025))*100:.1f}% inflation on spending, '
         f'SS COLA applied annually, RMDs at age 73 using IRS Uniform Lifetime Table, '
         f'85% of SS treated as federally taxable, 2024 federal brackets.'))
 
