@@ -95,6 +95,39 @@ def run_projection(client_data: dict) -> dict:
     # ── Step 8: RMD recalculation with real prior-year balances ──────────
     rmd_table = build_rmd_table(client_data, phase_table, portfolio_table)
 
+    # ── Step 8b: Second waterfall pass with corrected RMD amounts ─────────
+    # Now that we have real portfolio balances, RMDs are correctly calculated.
+    # Re-run waterfall so client_rmd_taken/spouse_rmd_taken reflect true IRS amounts.
+    waterfall_table = build_waterfall_table(
+        client_data, phase_table,
+        employment_table, ss_table, fixed_table, rmd_table,
+        initial_balances,
+    )
+
+    # ── Step 8c: Re-run portfolio with corrected draws ─────────────────────
+    portfolio_table = build_portfolio_table(
+        client_data, phase_table,
+        employment_table, waterfall_table, rmd_table,
+    )
+
+    # ── Step 8d: Third RMD pass — converges to exact IRS Uniform Lifetime Table ──
+    # Prior-year closing balances from 8c are now accurate.
+    # This produces RMD amounts = prior_year_close / IRS_period exactly.
+    rmd_table = build_rmd_table(client_data, phase_table, portfolio_table)
+
+    # ── Step 8e: Final waterfall with exact IRS RMDs ────────────────────────
+    waterfall_table = build_waterfall_table(
+        client_data, phase_table,
+        employment_table, ss_table, fixed_table, rmd_table,
+        initial_balances,
+    )
+
+    # ── Step 8f: Final portfolio pass ───────────────────────────────────────
+    portfolio_table = build_portfolio_table(
+        client_data, phase_table,
+        employment_table, waterfall_table, rmd_table,
+    )
+
     # ── Step 9: Tax estimates using gross income from waterfall ───────────
     # Build combined income table for tax engine
     combined = merge_tables(waterfall_table, ss_table, fixed_table)
