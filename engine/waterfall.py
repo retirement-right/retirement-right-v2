@@ -102,31 +102,27 @@ def build_waterfall_table(
         surplus_to_brok = 0.0
 
         if gap <= 0:
-            # Fixed income covers need — take mandatory RMDs anyway, reinvest surplus
+            # Fixed income already covers need.
+            # RMDs are MANDATORY — must still be taken and reported as taxable income.
+            # The excess (RMDs + fixed surplus) reinvests into brokerage.
             c_rmd_taken = c_rmd
             s_rmd_taken = s_rmd
-            rmd_surplus = round(total_rmd - max(gap * -1, 0), 2)
-            surplus_to_brok = round(abs(gap) + rmd_surplus, 2)  # excess flows to brokerage
+            surplus_to_brok = round(abs(gap) + total_rmd, 2)
 
         else:
             # Gap exists — fund it from waterfall
             remaining_gap = gap
 
-            # Step 1: RMDs — mandatory, apply first
-            c_rmd_taken = min(c_rmd, remaining_gap)
-            remaining_gap -= c_rmd_taken
-            if remaining_gap > 0 and s_rmd > 0:
-                s_rmd_taken = min(s_rmd, remaining_gap)
-                remaining_gap -= s_rmd_taken
-            elif remaining_gap <= 0:
-                s_rmd_taken = s_rmd
-                surplus_to_brok = round(total_rmd - c_rmd_taken - s_rmd_taken, 2)
+            # Step 1: RMDs — IRS MANDATORY. Always taken in FULL.
+            # If RMD > remaining_gap, excess reinvests to brokerage.
+            c_rmd_taken = c_rmd          # always take the full RMD
+            s_rmd_taken = s_rmd          # always take the full RMD
+            remaining_gap -= (c_rmd_taken + s_rmd_taken)
 
-            # RMD surplus if RMDs exceed gap
-            if total_rmd > gap:
-                rmd_surplus     = round(total_rmd - gap, 2)
-                surplus_to_brok = rmd_surplus
-                remaining_gap   = 0
+            if remaining_gap <= 0:
+                # RMDs alone covered the gap — reinvest the RMD surplus
+                surplus_to_brok = round(abs(remaining_gap), 2)
+                remaining_gap = 0
 
             # Step 2: Extra IRA draws — split evenly between client and spouse
             if remaining_gap > 0:
