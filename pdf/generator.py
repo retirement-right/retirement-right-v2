@@ -326,7 +326,8 @@ def build_cover(c, client_data, projection):
     total_net = total_inv + home
     spend = assump.get('income_need_annual', assump.get('annual_income_need',0))
     ror   = norm_pct(assump.get('rate_of_return',0.04))
-    lt_ss = summary.get('lifetime_ss',0); lt_tax = summary.get('lifetime_federal_tax',0)
+    lt_ss = summary.get('lifetime_ss',0)
+    lt_tax = summary.get('lifetime_federal_tax',0) + summary.get('lifetime_state_tax',0)
     end_p = summary.get('ending_portfolio',0); proj_y = summary.get('projection_years',0)
     rdate = projection.get('report_date','') or _date.today().strftime('%B %d, %Y')
 
@@ -467,7 +468,7 @@ def build_advisor_obs(c, pg, total_pg, client_data, projection, ctx):
         y -= 10
 
     obs('Income Sustainability',
-        f'Based on {ror*100:.1f}% annual return with {inf*100:.1f}% inflation, your portfolio is projected to grow from ${start_p:,.0f} to ${end_p:,.0f} over {proj_y} years. Your strategy draws fixed sources first — Social Security and fixed income — before touching investment accounts, significantly extending portfolio longevity.')
+        f'Based on {ror*100:.1f}% annual return with {inf*100:.1f}% inflation, your investable portfolio is projected to {"grow" if end_p >= start_p else "change"} from ${start_p:,.0f} to ${end_p:,.0f} over {proj_y} years. Your total estate value (including deferred annuity and home equity) is projected to increase over the same period. Your strategy draws fixed sources first — Social Security and fixed income — before touching investment accounts, significantly extending portfolio longevity.')
     obs('Tax Planning Observations',
         f'Estimated lifetime federal tax is ${lt_tax:,.0f}. Tax-efficient withdrawal sequencing — drawing taxable IRA funds during lower-income years — can meaningfully reduce this figure. Roth conversions in years where income falls below the 22% bracket deserve annual review. All projections assume 85% of Social Security is federally taxable.')
     if inh and isinstance(inh,dict) and inh.get('balance',0):
@@ -584,16 +585,18 @@ def build_income_tax(c, pg, total_pg, client_data, projection, ctx):
     ss_rows.append(('Lifetime SS (est.)', f'${lt_ss:,.0f}'))
     if not ss_rows: ss_rows = [('Social Security','Not applicable')]
 
-    tax_rows = [('Lifetime Gross', f"${summary.get('lifetime_gross',0):,.0f}"),
-                ('Lifetime Federal Tax', f"${summary.get('lifetime_federal_tax',0):,.0f}"),
-                ('Lifetime State Tax', f"${summary.get('lifetime_state_tax',0):,.0f}"),
-                ('Lifetime Net', f"${summary.get('lifetime_net',0):,.0f}")]
+    lt_total_tax = summary.get('lifetime_federal_tax',0) + summary.get('lifetime_state_tax',0)
+    tax_rows = [('Lifetime Gross Income',   f"${summary.get('lifetime_gross',0):,.0f}"),
+                ('Federal Tax (Est.)',       f"${summary.get('lifetime_federal_tax',0):,.0f}"),
+                ('State Tax (Est.)',         f"${summary.get('lifetime_state_tax',0):,.0f}"),
+                ('Total Est. Tax',          f"${lt_total_tax:,.0f}"),
+                ('Lifetime Net',            f"${summary.get('lifetime_net',0):,.0f}")]
     port_rows = [('Starting Portfolio', f"${summary.get('starting_portfolio',0):,.0f}"),
                  ('Ending Portfolio', f"${summary.get('ending_portfolio',0):,.0f}"),
                  ('Projection Years', str(summary.get('projection_years',0)))]
 
-    col1 = PW*0.34; col2 = PW*0.31; col3 = PW*0.35
-    w1a = col1*0.62; w1b = col1*0.38; w2a = col2*0.62; w2b = col2*0.38; w3a = col3*0.58; w3b = col3*0.42
+    col1 = PW*0.34; col2 = PW*0.33; col3 = PW*0.33
+    w1a = col1*0.60; w1b = col1*0.40; w2a = col2*0.58; w2b = col2*0.42; w3a = col3*0.58; w3b = col3*0.42
 
     y = draw_info_rows(c, LM, y, ss_rows, w1a, w1b, 'Social Security Plan')
     y_tax = CONTENT_Y; draw_info_rows(c, LM+col1, y_tax, tax_rows, w2a, w2b, 'Lifetime Tax Summary')
@@ -613,6 +616,13 @@ def build_income_tax(c, pg, total_pg, client_data, projection, ctx):
             c.setFillColor(GOLD_DK); c.setFont('Helvetica-Bold',7.5); c.drawString(LM+10, ly, 'Legacy & Estate:')
             c.setFillColor(CHARCOAL); c.setFont('Helvetica',7.5); c.drawString(LM+100, ly, legacy[:120])
 
+    # Tax disclosure
+    c.setFillColor(GRAY_MD); c.setFont('Helvetica', 6.5)
+    c.drawString(LM, FOOTER_Y + 16,
+        'Tax Disclosure: IRA and inherited IRA distributions taxable as ordinary income. '
+        'Brokerage growth not taxed until realized. SS taxation estimated under current assumptions. '
+        'Federal and state calculations are estimates only. Actual results vary based on future tax law, deductions, filing status, and individual circumstances.')
+
 
 def build_income_projection(c, pg, total_pg, client_data, projection, ctx):
     client = client_data['client']; spouse = client_data.get('spouse')
@@ -620,35 +630,37 @@ def build_income_projection(c, pg, total_pg, client_data, projection, ctx):
     cname = client.get('first_name','Client'); sname = spouse.get('first_name','Spouse') if spouse else 'Spouse'
     ror = norm_pct(assump.get('rate_of_return',0.04)); inf = norm_pct(assump.get('inflation_pct',0.025))
 
-    draw_header(c, pg, total_pg, 'Income Projection', 'Year-by-year SS · IRA · asset draw · spending need', ctx['name'], ctx['date'], ctx['ss_info'])
+    draw_header(c, pg, total_pg, 'Income Projection', 'Year-by-year SS · IRA · asset draw · total funded vs need', ctx['name'], ctx['date'], ctx['ss_info'])
     display = [r for r in years if not(not r.get('client_alive',True) and not r.get('spouse_alive',True) and r.get('gross_income',0)==0)]
-    draw_bar(c, f'PROJECTED ANNUAL INCOME — {len(display)} YEAR PROJECTION', f'LIFETIME GROSS ${summary['lifetime_gross']:,.0f}  |  NET ${summary['lifetime_net']:,.0f}')
+    draw_bar(c, f'PROJECTED ANNUAL INCOME — {len(display)} YEAR PROJECTION', f'LIFETIME GROSS ${summary["lifetime_gross"]:,.0f}  |  NET ${summary["lifetime_net"]:,.0f}')
     draw_footer(c)
 
-    # Column layout
-    cw = [w*PW for w in [0.075, 0.07, 0.07, 0.065, 0.07, 0.07, 0.09, 0.08, 0.085, 0.085, 0.10, 0.09]]
+    # Column layout — replace Surplus/Gap with Total Funded for clarity
+    # Total Funded = Gross Income + Asset Draw (pre-tax total sourced)
+    # Net Spendable = Net Income + Asset Draw (after-tax take-home)
+    cw = [w*PW for w in [0.075, 0.065, 0.065, 0.065, 0.065, 0.065, 0.075, 0.075, 0.08, 0.08, 0.09, 0.10]]
     aligns = ['L','R','R','R','R','R','R','R','R','R','R','R']
-    headers = ['Year', f'{cname}\nSS', f'{sname}\nSS', 'Pension/\nOther', 'IRA/RMD\nDist.', 'Asset\nDraw', 'Gross\nIncome', 'Est.\nTaxes', 'Net\nIncome', 'Need', 'Surplus/\nGap', 'Reserves']
-    # Use flat headers for canvas
-    hdr_flat = ['Year', f'{cname} SS', f'{sname} SS', 'Pension/Other', 'IRA/RMD', 'Asset Draw', 'Gross Income', 'Est. Taxes', 'Net Income', 'Need', 'Surplus/Gap', 'Reserves']
+    hdr_flat = ['Year', f'{cname} SS', f'{sname} SS', 'Pension/Other', 'IRA/RMD', 'Asset Draw', 'Gross Income', 'Est. Taxes', 'Net Income', 'Need', 'Total Funded', 'Reserves']
 
-    max_r = max_data_rows(has_note=False, extra_overhead=16)  # extra for footnote
+    max_r = max_data_rows(has_note=False, extra_overhead=20)
     collapsed = smart_collapse(display, max_r)
 
     rows = []
     odd = True
     for r, is_jump in collapsed:
-        c_ss = r.get('client_ss',0); s_ss = r.get('spouse_ss',0)
-        fixed = r.get('fixed_income',0) + r.get('inherited_ira_dist',0); ira_d = r.get('ira_distributions',0) - r.get('inherited_ira_dist',0)
+        c_ss  = r.get('client_ss',0); s_ss = r.get('spouse_ss',0)
+        fixed = r.get('fixed_income',0) + r.get('inherited_ira_dist',0)
+        ira_d = r.get('ira_distributions',0)
         adraw = r.get('brokerage_draw',0)+r.get('cash_draw',0)+r.get('real_estate_draw',0)
         gross = r.get('gross_income',0); taxes = r.get('total_tax',0)
-        net   = r.get('net_income',0);  need  = r.get('spending_need',0)
-        surp  = r.get('income_surplus',0) or 0; port = r.get('total_portfolio',0)
+        net   = r.get('net_income',0);   need  = r.get('spending_need',0)
+        # Total Funded = gross + asset draw — shows how the full spending need is covered
+        total_funded = gross + adraw
+        funded_fg = GREEN if abs(total_funded - need) < 1 else (RED if total_funded < need else GOLD)
+        port  = r.get('total_portfolio',0)
         ages  = f"{r['client_age']}/{r.get('spouse_age','')}" if r.get('spouse_age') else str(r['client_age'])
-        bg = TEAL_JMP if is_jump else (WHITE if odd else GRAY_BG)
-        surp_bg = GREEN_LT if surp>=0 else RED_LT
-        surp_txt = fmt(surp) if surp>=0 else f'({fmt(abs(surp))})'
-        surp_fg = GREEN if surp>=0 else RED
+        bg    = TEAL_JMP if is_jump else (WHITE if odd else GRAY_BG)
+        funded_txt = fmt(total_funded, zero_dash=False)
         cells = [
             (f"{r['year']}\n{ages}", GRAY_MD, False),
             (fmt(c_ss), NAVY, True), (fmt(s_ss), NAVY, True),
@@ -656,7 +668,7 @@ def build_income_projection(c, pg, total_pg, client_data, projection, ctx):
             (fmt(adraw) if adraw else '—', TEAL, True),
             (fmt(gross), BLACK, False), (fmt(taxes), AMBER, True),
             (fmt(net), GREEN, True), (fmt(need), PURPLE, True),
-            (surp_txt, surp_fg, True), (fmt(port), NAVY, True)
+            (funded_txt, funded_fg, True), (fmt(port), NAVY, True)
         ]
         top = TEAL if is_jump else None
         rows.append((cells, bg, top))
@@ -676,10 +688,12 @@ def build_income_projection(c, pg, total_pg, client_data, projection, ctx):
 
     end_y = draw_table(c, CONTENT_Y, cw, aligns, hdr_flat, rows)
 
-    # Footnote
+    # Footnote with tax disclosure
     c.setFillColor(GRAY_MD); c.setFont('Helvetica',6.5)
-    note = f'Assumptions: {ror*100:.1f}% growth, {inf*100:.1f}% inflation, SS COLA annually, RMDs at age 73, 85% SS taxable, 2024 brackets.'
-    if any(j for _,_,j in rows[:-1] if j is not None and j!=GRAY_LN): note += ' Teal rows = 5-year interval summary.'
+    note = (f'Assumptions: {ror*100:.1f}% growth, {inf*100:.1f}% inflation, SS COLA annually, RMDs at age 73, 85% SS taxable, 2024 brackets. '
+            'Total Funded = Gross Income + Asset Draw — shows full spending need coverage before tax. '
+            'IRA/inherited IRA distributions taxable as ordinary income. Brokerage growth not taxed until realized. '
+            'Federal and state tax estimates only — actual results vary.')
     c.drawString(LM, end_y-8, note)
 
 
@@ -764,7 +778,7 @@ def build_retirement_years(c, pg, total_pg, client_data, projection, ctx):
         need=r.get('spending_need',0); surp=r.get('income_surplus',0) or 0
         mo=r.get('net_monthly',0); port=r.get('total_portfolio',0)
         ages=f"{r['client_age']}/{r.get('spouse_age','')}" if r.get('spouse_age') else str(r['client_age'])
-        surp_txt = fmt(surp) if surp>=0 else f'({fmt(abs(surp))})'
+        surp_txt = fmt(surp, zero_dash=False) if surp>=0 else f'({fmt(abs(surp), zero_dash=False)})'
         surp_fg = GREEN if surp>=0 else RED
         bg = TEAL_JMP if is_teal else (WHITE if odd else GRAY_BG)
         top = TEAL if is_teal else None
@@ -782,8 +796,13 @@ def build_retirement_years(c, pg, total_pg, client_data, projection, ctx):
         (NAVY,'Lifetime Gross',f"${summary.get('lifetime_gross',0):,.0f} total gross income."),
         (AMBER,'Lifetime Taxes',f"${summary.get('lifetime_federal_tax',0):,.0f} fed + ${summary.get('lifetime_state_tax',0):,.0f} state."),
         (GREEN,'Lifetime Net',f"${summary.get('lifetime_net',0):,.0f} net after all taxes."),
-        (TEAL,f"Portfolio: ${summary.get('ending_portfolio',0):,.0f}",f"${summary.get('starting_portfolio',0):,.0f} → ${summary.get('ending_portfolio',0):,.0f}."),
+        (TEAL,f"Portfolio: ${summary.get('ending_portfolio',0):,.0f}",f"Investable: ${summary.get('starting_portfolio',0):,.0f} → ${summary.get('ending_portfolio',0):,.0f}"),
     ])
+    c.setFillColor(GRAY_MD); c.setFont('Helvetica', 6.5)
+    c.drawString(LM, FOOTER_Y + 16,
+        'Tax Disclosure: IRA/inherited IRA distributions taxable as ordinary income. SS taxation estimated at 85%. '
+        'Brokerage draws not taxed as ordinary income. Filing status switches from MFJ to Single after first spouse death. '
+        'Federal and state tax estimates only — actual results vary based on tax law, deductions, and individual circumstances.')
 
 
 def build_waterfall(c, pg, total_pg, client_data, projection, ctx):
@@ -833,7 +852,7 @@ def build_waterfall(c, pg, total_pg, client_data, projection, ctx):
         s_ira=r.get('spouse_rmd_taken',0)+r.get('spouse_ira_extra',0)
         invest=r.get('brokerage_draw',0); cash=r.get('cash_draw',0)
         total_drawn=c_ira+s_ira+invest+cash; covered=surp>=0 and total_drawn==0
-        gap_txt = 'Covered ✓' if covered else fmt(abs(surp)); gap_fg = GREEN if covered else RED
+        gap_txt = 'Covered ✓' if covered else fmt(abs(surp), zero_dash=False); gap_fg = GREEN if covered else RED
         ages=f"{r['client_age']}/{r.get('spouse_age','')}" if r.get('spouse_age') else str(r['client_age'])
         bg = TEAL_JMP if is_jump else (WHITE if odd else GRAY_BG)
         top = TEAL if is_jump else None
@@ -984,26 +1003,30 @@ def build_portfolio_summary(c, pg, total_pg, client_data, projection, ctx):
     years = projection['years']; summary = projection['summary']
     client=client_data['client']; spouse=client_data.get('spouse')
     cname=client.get('first_name','Client'); sname=spouse.get('first_name','Spouse') if spouse else 'Spouse'
-    sp=summary.get('starting_portfolio',0); ep=summary.get('ending_portfolio',0)
+    # Use total_estate for header (includes annuity + home which are shown as columns)
+    first_live = next((r for r in years if r.get('client_alive',True) or r.get('spouse_alive',True)), years[0])
+    last_live  = next((r for r in reversed(years) if r.get('client_alive',True) or r.get('spouse_alive',True)), years[-1])
+    sp = first_live.get('total_estate', 0)
+    ep = last_live.get('total_estate', 0)
 
-    draw_header(c, pg, total_pg, 'Combined Portfolio Summary', 'All accounts by year — annual then 5-year intervals', ctx['name'], ctx['date'], ctx['ss_info'])
-    draw_bar(c, 'COMBINED PORTFOLIO — ALL ACCOUNTS BY YEAR', f'PORTFOLIO: ${sp:,.0f} → ${ep:,.0f}')
+    draw_header(c, pg, total_pg, 'Combined Estate Summary', 'All accounts by year — investable + annuity + home equity', ctx['name'], ctx['date'], ctx['ss_info'])
+    draw_bar(c, 'COMBINED ESTATE — ALL ACCOUNTS BY YEAR', f'ESTATE: ${sp:,.0f} → ${ep:,.0f}')
     draw_footer(c)
 
     live = [r for r in years if r.get('client_alive',True) or r.get('spouse_alive',True)]
     max_r = max_data_rows(has_note=False, extra_overhead=14)
     collapsed = smart_collapse(live, max_r)
 
-    cw = [w*PW for w in [0.07,0.09,0.09,0.10,0.09,0.09,0.08,0.14,0.10]]
-    aligns = ['L','R','R','R','R','R','R','R','R']
-    hdr_flat = ['Year',f'{cname}\'s IRA',f'{sname}\'s IRA','Brokerage','Cash & Resv.','Inh. IRA','Other','Combined Portfolio','Net Monthly']
+    cw = [w*PW for w in [0.06,0.07,0.07,0.09,0.07,0.07,0.07,0.07,0.06,0.11,0.08]]
+    aligns = ['L','R','R','R','R','R','R','R','R','R','R']
+    hdr_flat = ['Year',f'{cname}\'s IRA',f'{sname}\'s IRA','Brokerage','Cash & Resv.','Inh. IRA','Annuity','Home Equity','Other','Total Estate','Net Monthly']
 
     rows = []; odd = True; crossed = set()
     for r, is_jump in collapsed:
-        port = r.get('total_portfolio',0); mo = r.get('net_monthly',0)
+        estate = r.get('total_estate', r.get('total_portfolio',0)); mo = r.get('net_monthly',0)
         is_ms = False
-        for thresh,lbl in [(1e6,'1M'),(2e6,'2M'),(3e6,'3M'),(5e6,'5M')]:
-            if lbl not in crossed and port>=thresh: is_ms=True; crossed.add(lbl)
+        for thresh,lbl in [(1e6,'1M'),(2e6,'2M'),(3e6,'3M'),(5e6,'5M'),(8e6,'8M'),(10e6,'10M')]:
+            if lbl not in crossed and estate>=thresh: is_ms=True; crossed.add(lbl)
         bg = TEAL_JMP if is_jump else (GOLD_LT if is_ms else (WHITE if odd else GRAY_BG))
         top = TEAL if is_jump else None
         rows.append(([
@@ -1013,8 +1036,10 @@ def build_portfolio_summary(c, pg, total_pg, client_data, projection, ctx):
             (fmt(r.get('brokerage_close',0)),BLACK,False),
             (fmt(r.get('cash_close',0)),BLACK,False),
             (fmt(r.get('inherited_ira_close',0) or r.get('inherited_ira_balance',0)),BLACK,False),
+            (fmt(r.get('annuity_close',0)),PURPLE,False),
+            (fmt(r.get('home_close',0)),GOLD,False),
             (fmt(r.get('other_close',0)),BLACK,False),
-            (fmt(port),NAVY,True),(fmt(mo),BLACK,False)
+            (fmt(estate),NAVY,True),(fmt(mo),BLACK,False)
         ], bg, top))
         odd = not odd
 
@@ -1195,6 +1220,157 @@ def build_schwab_statement(c, pg, total_pg, client_data, projection, ctx):
             c.line(x, bar_y - 26, x, bar_y - 2)
 
 
+def build_estate_summary(c, pg, total_pg, client_data, projection, ctx):
+    """
+    Estate Projection page.
+    Portfolio = investable/spendable assets (IRA, brokerage, cash, other).
+    Estate    = portfolio + deferred annuity + home equity (legacy/non-spendable).
+    """
+    client  = client_data['client']; spouse = client_data.get('spouse')
+    years   = projection['years'];   summary = projection['summary']
+    assets  = normalize_assets(client_data.get('assets', {}))
+    assump  = client_data.get('assumptions', {})
+    ror     = norm_pct(assump.get('rate_of_return', 0.04))
+    last    = years[-1]
+    proj_yrs = summary.get('projection_years', 0)
+
+    draw_header(c, pg, total_pg, 'Estate Projection',
+                'Portfolio · deferred annuity · home equity · total legacy value',
+                ctx['name'], ctx['date'], ctx['ss_info'])
+    draw_bar(c, 'ESTATE SUMMARY — PROJECTED TO END OF PLANNING HORIZON',
+             f'{ror*100:.1f}% ANNUAL GROWTH  ·  HOME & ANNUITY NOT DRAWN')
+    draw_footer(c)
+
+    y = CONTENT_Y
+
+    # ── Pull current values ───────────────────────────────────────────────
+    c_ira_st  = assets.get('client_ira', 0) or 0
+    s_ira_st  = assets.get('spouse_ira', 0) or 0
+    inh_st    = (assets.get('ira_inherited') or {}).get('balance', 0) \
+                if isinstance(assets.get('ira_inherited'), dict) else 0
+    # Money market is a sub-account of brokerage — show separately
+    mm_st     = assets.get('money_market', 0) or 0
+    # Brokerage net of money market
+    brok_raw  = assets.get('brokerage', 0) or 0
+    brok_st   = brok_raw - mm_st if brok_raw > mm_st else brok_raw
+    cash_st   = assets.get('cash', 0) or 0
+    oth_st    = assets.get('other_client', 0) or 0
+    ann_st    = assets.get('annuity_balance', 0) or 0
+    home_st   = assets.get('home_value', 0) or 0
+
+    # Current portfolio = investable only — use engine's total_portfolio from year 0
+    port_curr   = years[0].get('total_portfolio', 0)
+    # Current estate = engine's total_estate from year 0 (= portfolio + annuity + home)
+    estate_curr = years[0].get('total_estate', port_curr + ann_st + home_st)
+
+    # Pull projected values (last year of projection)
+    c_ira_end  = last.get('client_ira_close', 0) or 0
+    s_ira_end  = last.get('spouse_ira_close', 0) or 0
+    inh_end    = last.get('inherited_ira_close', 0) or 0
+    brok_end   = last.get('brokerage_close', 0) or 0
+    cash_end   = last.get('cash_close', 0) or 0
+    oth_end    = last.get('other_close', 0) or 0
+    ann_end    = last.get('annuity_close', 0) or 0
+    home_end   = last.get('home_close', 0) or 0
+
+    # total_portfolio = investable only (IRA+brok+cash+other, no annuity/home)
+    port_end   = last.get('total_portfolio', 0)
+    # total_estate = total_portfolio + annuity + home (engine calculates this)
+    estate_end = last.get('total_estate', port_end + ann_end + home_end)
+
+    # ── KPI row 1: portfolio ──────────────────────────────────────────────
+    y = draw_kpi_row(c, y, [
+        ('Current Investable Portfolio', fmt(port_curr, False), NAVY),
+        ('Projected Investable Portfolio', fmt(port_end, False), TEAL),
+        ('Current Total Estate', fmt(estate_curr, False), GREEN),
+        ('Projected Total Estate', fmt(estate_end, False), GREEN),
+    ])
+    y -= 4
+
+    # ── KPI row 2: legacy assets ──────────────────────────────────────────
+    y = draw_kpi_row(c, y, [
+        ('Current Home Equity', fmt(home_st, False), GOLD),
+        ('Projected Home Equity', fmt(home_end, False), GOLD),
+        ('Current Annuity Value', fmt(ann_st, False), PURPLE),
+        ('Projected Annuity Value', fmt(ann_end, False), PURPLE),
+    ])
+    y -= 12
+
+    # ── Asset-by-asset table ──────────────────────────────────────────────
+    c.setFillColor(NAVY); c.setFont('Helvetica-Bold', 9)
+    c.drawString(LM, y, f'Asset-by-Asset Estate Projection  ·  Current vs Projected ({proj_yrs} Years)')
+    y -= 6
+
+    def growth_pct(start, end):
+        if start <= 0: return '—'
+        g = (end - start) / start * 100
+        return f'+{g:.1f}%' if g >= 0 else f'{g:.1f}%'
+
+    def note_for(lbl):
+        if 'Annuity'   in lbl: return 'Deferred accumulation — no withdrawals assumed'
+        if 'Home'      in lbl: return f'Appreciates at {ror*100:.1f}%/yr — not a spending asset'
+        if 'Inherited' in lbl: return '10-Year Rule — fully distributed by 2035'
+        if 'Money'     in lbl: return 'Sub-account of brokerage — included in brokerage total'
+        if 'IRA'       in lbl: return 'RMD withdrawals reduce balance from age 73'
+        if 'Brokerage' in lbl: return 'Draws fund spending gap per waterfall strategy'
+        return ''
+
+    # Table rows — investable first, then legacy
+    rows_data = [
+        # label,          current,   projected,  color,   section
+        ('Client IRA / 401(k)',  c_ira_st,  c_ira_end,  NAVY),
+        ('Spouse IRA / 401(k)',  s_ira_st,  s_ira_end,  TEAL),
+        ('Inherited IRA',        inh_st,    inh_end,    AMBER),
+        ('Joint Brokerage',      brok_st,   brok_end,   GREEN),
+        ('Money Market',         mm_st,     0,          GRAY_MD),  # sub-acct, projected in brokerage
+        ('Cash & Savings',       cash_st,   cash_end,   GRAY_MD),
+        ('Other Assets',         oth_st,    oth_end,    GRAY_MD),
+        ('Deferred Annuity',     ann_st,    ann_end,    PURPLE),
+        ('Home Equity',          home_st,   home_end,   GOLD),
+    ]
+
+    cw = [PW*w for w in [0.26, 0.15, 0.16, 0.13, 0.30]]
+    aligns = ['L', 'R', 'R', 'R', 'L']
+    hdrs = ['Asset', 'Current Value', f'Projected ({proj_yrs} yrs)', 'Growth %', 'Notes']
+
+    tbl_rows = []
+    total_curr_tbl = 0; total_proj_tbl = 0
+    for lbl, curr, proj_v, color in rows_data:
+        if curr <= 0 and proj_v <= 0: continue
+        is_mm = 'Money' in lbl   # money market shown but not double-counted in totals
+        is_legacy = lbl in ('Deferred Annuity', 'Home Equity')
+        if not is_mm:
+            total_curr_tbl += curr
+            total_proj_tbl += proj_v
+        odd = len(tbl_rows) % 2 == 0
+        proj_disp = fmt(proj_v, False) if proj_v > 0 else '(in Brokerage)'
+        tbl_rows.append(([
+            (lbl, color, True),
+            (fmt(curr, False), BLACK, False),
+            (proj_disp, NAVY if proj_v > 0 else GRAY_MD, proj_v > 0),
+            (growth_pct(curr, proj_v) if proj_v > 0 else '—', GREEN if proj_v >= curr else RED, False),
+            (note_for(lbl), GRAY_MD, False),
+        ], WHITE if odd else GRAY_BG, GOLD if is_legacy and len(tbl_rows) > 0 and not ('Home' in rows_data[rows_data.index((lbl,curr,proj_v,color))-1][0] if rows_data.index((lbl,curr,proj_v,color)) > 0 else True) else None))
+
+    # Totals row — must match KPI boxes exactly
+    tbl_rows.append(([
+        ('TOTAL ESTATE', NAVY, True),
+        (fmt(estate_curr, False), NAVY, True),
+        (fmt(estate_end, False), NAVY, True),
+        (growth_pct(estate_curr, estate_end), GREEN, True),
+        ('Portfolio + Annuity + Home Equity', CHARCOAL, False),
+    ], NAVY_LT, NAVY))
+
+    end_y = draw_table(c, y, cw, aligns, hdrs, tbl_rows)
+
+    # ── Footnote ─────────────────────────────────────────────────────────
+    c.setFillColor(GRAY_MD); c.setFont('Helvetica', 6.5)
+    c.drawString(LM, end_y - 8,
+        f'Portfolio = investable/spendable assets. Estate = portfolio + annuity + home equity. '
+        f'Home and annuity projected at {ror*100:.1f}%/yr. Neither is used as an income source. '
+        'Money Market is a sub-account of brokerage and is included in brokerage projected value.')
+
+
 # ══════════════════════════════════════════════════════════════
 # ENTRY POINT
 # ══════════════════════════════════════════════════════════════
@@ -1229,7 +1405,9 @@ def generate_pdf(client_data: dict, projection: dict) -> bytes:
     has_inh_ira = bool(isinstance(inh_check,dict) and inh_check.get('balance',0))
     has_working = any(r.get('client_salary',0)+r.get('spouse_salary',0)>0 for r in years)
 
-    # Fixed page count: cover + 4 text pages + 6 data pages + 0/1 inh + 0/1 working + 1 schwab
+    # Fixed page count: cover(1) + exec(2) + obs(3) + snap(4) + tax(5) + proj(6)
+    # + ret(7) + waterfall(8) + acct_ira(9) + acct_invest(10) + port(11) + schwab(12) + estate(13)
+    # + optional inh_ira + optional working
     total_pages = 13 + (1 if has_inh_ira else 0) + (1 if has_working else 0)
 
     ctx = {'name': full_name, 'date': report_date, 'ss_info': ss_info}
@@ -1278,7 +1456,10 @@ def generate_pdf(client_data: dict, projection: dict) -> bytes:
     build_portfolio_summary(c, pg, total_pages, client_data, projection, ctx); pg += 1; c.showPage()
 
     # Page 13/14 — Schwab-style Account Statement
-    build_schwab_statement(c, pg, total_pages, client_data, projection, ctx); c.showPage()
+    build_schwab_statement(c, pg, total_pages, client_data, projection, ctx); pg += 1; c.showPage()
+
+    # Page 14/15 — Estate Projection
+    build_estate_summary(c, pg, total_pages, client_data, projection, ctx); c.showPage()
 
     c.save()
     return buf.getvalue()
