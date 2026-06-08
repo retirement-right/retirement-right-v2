@@ -192,7 +192,7 @@ def projection_years(
     else:
         end_year = client_end
 
-    return list(range(start_year, end_year + 1))
+    return list(range(start_year, end_year))
 
 
 # ── Build full phase table ────────────────────────────────────────────────────
