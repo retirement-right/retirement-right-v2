@@ -639,7 +639,7 @@ def build_income_projection(c, pg, total_pg, client_data, projection, ctx):
     odd = True
     for r, is_jump in collapsed:
         c_ss = r.get('client_ss',0); s_ss = r.get('spouse_ss',0)
-        fixed = r.get('fixed_income',0); ira_d = r.get('ira_distributions',0)
+        fixed = r.get('fixed_income',0) + r.get('inherited_ira_dist',0); ira_d = r.get('ira_distributions',0) - r.get('inherited_ira_dist',0)
         adraw = r.get('brokerage_draw',0)+r.get('cash_draw',0)+r.get('real_estate_draw',0)
         gross = r.get('gross_income',0); taxes = r.get('total_tax',0)
         net   = r.get('net_income',0);  need  = r.get('spending_need',0)
@@ -757,7 +757,7 @@ def build_retirement_years(c, pg, total_pg, client_data, projection, ctx):
 
     rows = []; odd = True
     for r,is_teal in final:
-        c_ss=r.get('client_ss',0); s_ss=r.get('spouse_ss',0); fixed=r.get('fixed_income',0)
+        c_ss=r.get('client_ss',0); s_ss=r.get('spouse_ss',0); fixed=r.get('fixed_income',0)+r.get('inherited_ira_dist',0)
         c_ira=r.get('client_rmd_taken',0)+r.get('client_ira_extra',0)
         s_ira=r.get('spouse_rmd_taken',0)+r.get('spouse_ira_extra',0)
         gross=r.get('gross_income',0); taxes=r.get('total_tax',0); net=r.get('net_income',0)
@@ -827,7 +827,7 @@ def build_waterfall(c, pg, total_pg, client_data, projection, ctx):
                 (f'— {label} —',WHITE,True)] + [('',WHITE,False)]*13,
                 ph_bg, None))
         c_sal=r.get('client_salary',0); s_sal=r.get('spouse_salary',0)
-        ss=r.get('client_ss',0)+r.get('spouse_ss',0); fixed=r.get('fixed_income',0); all_f=ss+fixed
+        ss=r.get('client_ss',0)+r.get('spouse_ss',0); fixed=r.get('fixed_income',0)+r.get('inherited_ira_dist',0); all_f=ss+fixed
         need=r.get('spending_need',0); surp=r.get('income_surplus',0) or 0
         c_ira=r.get('client_rmd_taken',0)+r.get('client_ira_extra',0)
         s_ira=r.get('spouse_rmd_taken',0)+r.get('spouse_ira_extra',0)
@@ -1024,6 +1024,177 @@ def build_portfolio_summary(c, pg, total_pg, client_data, projection, ctx):
     c.drawString(LM, end_y-8, note)
 
 
+def build_schwab_statement(c, pg, total_pg, client_data, projection, ctx):
+    """
+    Schwab-style account statement page.
+    Shows each account with opening balance, contributions, earnings,
+    withdrawals, and closing balance — formatted like a brokerage statement.
+    """
+    client  = client_data['client']; spouse = client_data.get('spouse')
+    years   = projection['years'];   summary = projection['summary']
+    assets  = normalize_assets(client_data.get('assets', {}))
+    assump  = client_data.get('assumptions', {})
+    cname   = client.get('first_name','Client')
+    sname   = spouse.get('first_name','Spouse') if spouse else 'Spouse'
+    ror     = norm_pct(assump.get('rate_of_return', 0.04))
+    sp      = summary.get('starting_portfolio', 0)
+    ep      = summary.get('ending_portfolio', 0)
+    rdate   = ctx['date']
+
+    draw_header(c, pg, total_pg, 'Account Statement Summary',
+                'Schwab-style · opening · contributions · earnings · withdrawals · closing',
+                ctx['name'], ctx['date'], ctx['ss_info'])
+    draw_bar(c, 'ACCOUNT STATEMENT SUMMARY — ALL ACCOUNTS',
+             f'AS OF {rdate}  ·  {ror*100:.1f}% ASSUMED ANNUAL GROWTH')
+    draw_footer(c)
+
+    y = CONTENT_Y
+
+    # ── Helper: draw one account block ───────────────────────────────────
+    def account_block(y, acct_name, acct_type, acct_num, open_bal, contributions,
+                      earnings, withdrawals, close_bal, color, show_rmd_note=False):
+        BH = 22   # block header height
+        RH = 17   # row height
+        rows = [
+            ('Opening Balance', open_bal, BLACK, False),
+            ('Contributions / Deposits', contributions, TEAL, False),
+            ('Investment Earnings', earnings, GREEN, False),
+            ('Withdrawals / Distributions', -abs(withdrawals) if withdrawals else 0, RED, True),
+            ('Closing Balance', close_bal, NAVY, True),
+        ]
+        total_h = BH + len(rows) * RH + 6
+
+        # Account header bar
+        c.setFillColor(color)
+        c.rect(LM, y - BH, PW, BH, fill=1, stroke=0)
+        c.setFillColor(WHITE); c.setFont('Helvetica-Bold', 9)
+        c.drawString(LM + 12, y - BH + 7, acct_name)
+        c.setFillColor(colors.HexColor('#FFFFFF90')); c.setFont('Helvetica', 7.5)
+        c.drawString(LM + 12, y - BH + 1, f'{acct_type}  ·  {acct_num}')
+        c.setFillColor(WHITE); c.setFont('Helvetica-Bold', 10)
+        c.drawRightString(PAGE_W - RM - 12, y - BH + 7, fmt(close_bal, zero_dash=False))
+        c.setFillColor(colors.HexColor('#FFFFFF90')); c.setFont('Helvetica', 7)
+        c.drawRightString(PAGE_W - RM - 12, y - BH + 1, 'Current Balance')
+        y -= BH
+
+        # Detail rows
+        col_lbl = PW * 0.55
+        for lbl, val, fg, bold in rows:
+            bg = GRAY_BG if rows.index((lbl, val, fg, bold)) % 2 == 0 else WHITE
+            c.setFillColor(bg); c.rect(LM, y - RH, PW, RH, fill=1, stroke=0)
+            c.setStrokeColor(GRAY_LN); c.setLineWidth(0.2)
+            c.line(LM, y - RH, LM + PW, y - RH)
+            fn = 'Helvetica-Bold' if bold else 'Helvetica'
+            c.setFillColor(GRAY_MD); c.setFont('Helvetica', 8)
+            c.drawString(LM + 24, y - RH + 5, lbl)
+            c.setFillColor(fg); c.setFont(fn, 8)
+            disp = fmt(abs(val), zero_dash=False) if val >= 0 else f'({fmt(abs(val), zero_dash=False)})'
+            if val == 0: disp = '—'
+            c.drawRightString(LM + PW - 12, y - RH + 5, disp)
+            y -= RH
+
+        if show_rmd_note:
+            c.setFillColor(AMBER_LT); c.rect(LM, y - 12, PW, 12, fill=1, stroke=0)
+            c.setFillColor(AMBER); c.setFont('Helvetica', 6.5)
+            c.drawString(LM + 12, y - 9, '* IRS Required Minimum Distributions (RMDs) are included in withdrawals per IRS Uniform Lifetime Table. Mandatory at age 73.')
+            y -= 12
+
+        c.setStrokeColor(color); c.setLineWidth(1)
+        c.rect(LM, y - 4, PW, total_h + (12 if show_rmd_note else 0) - 4, fill=0, stroke=1)
+        c.setLineWidth(0.3)
+        return y - 10
+
+    # ── Pull first and last year summary values ───────────────────────────
+    first = years[0]; last = years[-1]
+
+    # Compute lifetime totals per account
+    def lifetime(open_k, earn_k, draw_k, contrib_k=None):
+        total_earn  = sum(r.get(earn_k, 0) or 0 for r in years)
+        total_draw  = sum(r.get(draw_k, 0) or 0 for r in years)
+        total_cont  = sum(r.get(contrib_k, 0) or 0 for r in years) if contrib_k else 0
+        open_bal    = years[0].get(open_k, 0) or 0
+        close_bal   = years[-1].get(open_k.replace('open','close'), 0) or 0
+        return open_bal, total_cont, total_earn, total_draw, close_bal
+
+    c_ira_open, c_ira_cont, c_ira_earn, c_ira_draw, c_ira_close = lifetime(
+        'client_ira_open','client_ira_earn','client_ira_draw','client_ira_contrib')
+    s_ira_open, s_ira_cont, s_ira_earn, s_ira_draw, s_ira_close = lifetime(
+        'spouse_ira_open','spouse_ira_earn','spouse_ira_draw','spouse_ira_contrib')
+    brok_open, _, brok_earn, brok_draw, brok_close = lifetime(
+        'brokerage_open','brokerage_earn','brokerage_draw')
+    cash_open, _, cash_earn, cash_draw, cash_close = lifetime(
+        'cash_open','cash_earn','cash_draw')
+
+    inh = assets.get('ira_inherited') or {}
+    inh_open  = inh.get('balance', 0) if isinstance(inh, dict) else 0
+    inh_earn  = sum(r.get('inherited_ira_dist', 0) * 0 for r in years)  # no growth — fixed distribution
+    inh_dist_total = sum(r.get('inherited_ira_dist', 0) or 0 for r in years)
+    inh_close = last.get('inherited_ira_close', 0) or last.get('inherited_ira_balance', 0) or 0
+
+    has_c_ira   = c_ira_open > 0 or c_ira_close > 0
+    has_s_ira   = s_ira_open > 0 or s_ira_close > 0
+    has_inh     = inh_open > 0
+    has_brok    = brok_open > 0 or brok_close > 0
+    has_cash    = cash_open > 0 or cash_close > 0
+
+    has_rmd = any(r.get('client_rmd_taken', 0) + r.get('spouse_rmd_taken', 0) > 0 for r in years)
+
+    # Draw account blocks
+    if has_c_ira:
+        y = account_block(y, f"{cname}'s IRA / 401(k)",
+                          'Traditional IRA / Pre-Tax Retirement',
+                          'Account ending in ••••',
+                          c_ira_open, c_ira_cont, c_ira_earn, c_ira_draw, c_ira_close,
+                          NAVY, show_rmd_note=has_rmd)
+
+    if has_s_ira:
+        y = account_block(y, f"{sname}'s IRA / 401(k)",
+                          'Traditional IRA / Pre-Tax Retirement',
+                          'Account ending in ••••',
+                          s_ira_open, s_ira_cont, s_ira_earn, s_ira_draw, s_ira_close,
+                          TEAL, show_rmd_note=has_rmd)
+
+    if has_inh:
+        y = account_block(y, 'Inherited IRA — 10-Year Rule',
+                          'Inherited Traditional IRA (Non-Spouse Beneficiary)',
+                          'Must distribute by year 10',
+                          inh_open, 0, 0, inh_dist_total, inh_close,
+                          AMBER)
+
+    if has_brok:
+        y = account_block(y, 'Joint Investment Account',
+                          'Taxable Brokerage — Joint Tenants',
+                          'Account ending in ••••',
+                          brok_open, 0, brok_earn, brok_draw, brok_close,
+                          GREEN)
+
+    if has_cash:
+        y = account_block(y, 'Cash & Savings',
+                          'Savings / Money Market',
+                          'Account ending in ••••',
+                          cash_open, 0, cash_earn, cash_draw, cash_close,
+                          GOLD)
+
+    # ── Portfolio summary bar at bottom ──────────────────────────────────
+    bar_y = max(y - 6, FOOTER_Y + 20)
+    c.setFillColor(NAVY); c.rect(LM, bar_y - 28, PW, 28, fill=1, stroke=0)
+    seg = PW / 4
+    for i, (lbl, val) in enumerate([
+        ('Total Opening Portfolio', sp),
+        ('Total Lifetime Earnings', sum(r.get('brokerage_earn',0)+r.get('client_ira_earn',0)+r.get('spouse_ira_earn',0) for r in years)),
+        ('Total Lifetime Withdrawals', sum(r.get('brokerage_draw',0)+r.get('client_ira_draw',0)+r.get('spouse_ira_draw',0) for r in years)),
+        ('Total Closing Portfolio', ep),
+    ]):
+        x = LM + i * seg
+        c.setFillColor(colors.HexColor('#AABDD4')); c.setFont('Helvetica-Bold', 6)
+        c.drawCentredString(x + seg/2, bar_y - 10, lbl)
+        c.setFillColor(WHITE); c.setFont('Helvetica-Bold', 11)
+        c.drawCentredString(x + seg/2, bar_y - 24, fmt(val, zero_dash=False))
+        if i > 0:
+            c.setStrokeColor(colors.HexColor('#FFFFFF30')); c.setLineWidth(0.5)
+            c.line(x, bar_y - 26, x, bar_y - 2)
+
+
 # ══════════════════════════════════════════════════════════════
 # ENTRY POINT
 # ══════════════════════════════════════════════════════════════
@@ -1058,8 +1229,8 @@ def generate_pdf(client_data: dict, projection: dict) -> bytes:
     has_inh_ira = bool(isinstance(inh_check,dict) and inh_check.get('balance',0))
     has_working = any(r.get('client_salary',0)+r.get('spouse_salary',0)>0 for r in years)
 
-    # Fixed page count: cover + 4 text pages + 6 data pages + 0/1 inh + 0/1 working
-    total_pages = 12 + (1 if has_inh_ira else 0) + (1 if has_working else 0)
+    # Fixed page count: cover + 4 text pages + 6 data pages + 0/1 inh + 0/1 working + 1 schwab
+    total_pages = 13 + (1 if has_inh_ira else 0) + (1 if has_working else 0)
 
     ctx = {'name': full_name, 'date': report_date, 'ss_info': ss_info}
 
@@ -1104,7 +1275,10 @@ def generate_pdf(client_data: dict, projection: dict) -> bytes:
     pg = build_account_balances(c, pg, total_pages, client_data, projection, ctx)
 
     # Page 12/13 — Combined Portfolio
-    build_portfolio_summary(c, pg, total_pages, client_data, projection, ctx); c.showPage()
+    build_portfolio_summary(c, pg, total_pages, client_data, projection, ctx); pg += 1; c.showPage()
+
+    # Page 13/14 — Schwab-style Account Statement
+    build_schwab_statement(c, pg, total_pages, client_data, projection, ctx); c.showPage()
 
     c.save()
     return buf.getvalue()
