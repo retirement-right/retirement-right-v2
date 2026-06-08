@@ -56,6 +56,8 @@ def build_portfolio_table(
     brok_bal   = brokerage.get("total_balance", 0)
     ann_bal    = assets.get("annuity_value") or 0
     re_bal     = assets.get("real_estate_equity") or 0
+    home_bal   = assets.get("primary_home_value") or 0
+    home_rate  = assumptions.get("home_appreciation_rate", rate)  # default to global ROR
     cash_bal   = (cash_sav.get("client_balance", 0) or 0) + \
                  (cash_sav.get("spouse_balance", 0) or 0)
     other_bal  = sum(a.get("balance", 0) for a in other_list if a.get("investable", True))
@@ -128,12 +130,18 @@ def build_portfolio_table(
         ann_close = max(round(ann_open + ann_earn - ann_draw, 2), 0)
         ann_bal   = ann_close
 
-        # ── REAL ESTATE ──────────────────────────────────────────────────
+        # ── REAL ESTATE (investment equity — rentals etc.) ───────────────
         re_open  = re_bal
         re_earn  = round(re_open * rate, 2)
         re_draw  = wf.get("real_estate_draw", 0)
         re_close = max(round(re_open + re_earn - re_draw, 2), 0)
         re_bal   = re_close
+
+        # ── PRIMARY HOME EQUITY — growth asset only, never drawn ─────────
+        home_open  = home_bal
+        home_earn  = round(home_open * home_rate, 2)
+        home_close = round(home_open + home_earn, 2)
+        home_bal   = home_close
 
         # ── CASH & SAVINGS ────────────────────────────────────────────────
         cash_open    = cash_bal
@@ -150,13 +158,15 @@ def build_portfolio_table(
         # ── TOTALS ────────────────────────────────────────────────────────
         total_ira    = round(c_ira_close + s_ira_close, 2)
         total_roth   = round(c_roth_close + s_roth_close, 2)
+        # Investable/spendable portfolio — excludes annuity and home (legacy assets)
         total_port   = round(
             c_ira_close + s_ira_close +
             c_roth_close + s_roth_close +
             inh_close + brok_close +
-            ann_close + re_close +
             cash_close + other_close, 2
         )
+        # Estate = investable portfolio + deferred annuity + home equity
+        total_estate = round(total_port + ann_close + home_close, 2)
 
         results.append({
             **row,
@@ -184,9 +194,15 @@ def build_portfolio_table(
             "brokerage_draw":    brok_draw,
             "brokerage_close":   brok_close,
             # Annuity
+            "annuity_open":      ann_open,
+            "annuity_earn":      ann_earn,
             "annuity_close":     ann_close,
-            # Real estate
+            # Real estate equity (investment/rental)
             "real_estate_close": re_close,
+            # Primary home equity — growth only, not drawn
+            "home_open":         home_open,
+            "home_earn":         home_earn,
+            "home_close":        home_close,
             # Cash
             "cash_open":         cash_open,
             "cash_earn":         cash_earn,
@@ -198,6 +214,7 @@ def build_portfolio_table(
             "total_ira":         total_ira,
             "total_roth":        total_roth,
             "total_portfolio":   total_port,
+            "total_estate":      total_estate,
         })
 
     return results
