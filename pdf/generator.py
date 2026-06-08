@@ -334,7 +334,8 @@ def build_working_page(story, client_data, projection, ctx):
     story.extend(footer_note(
         'Employment income shown prorated for partial years. 401k contributions reduce taxable income shown. '
         'Tax estimate simplified for working years — see retirement pages for detailed tax projection. '
-        'Reserves = all accounts combined at year-end.'))
+        'Reserves = all accounts combined at year-end. '
+        'Employment income and retirement contributions may be prorated during transition years based on retirement dates and report date.'))
 
 
 def build_retirement_page(story, client_data, projection, ctx):
@@ -1193,7 +1194,7 @@ def build_snapshot_page(story, client_data, projection, ctx):
         row("State", client.get("state","—")),
         row("Target Retirement Age", str(client.get("retirement",{}).get("retirement_age","—"))),
         row("Annual Spending Need", f"${assumptions.get('income_need_annual',0):,.0f}"),
-        row("Rate of Return", f"{(assumptions.get('rate_of_return',0) if assumptions.get('rate_of_return',0) <= 1 else assumptions.get('rate_of_return',0)/100)*100:.1f}%"),
+        row("Rate of Return", f"{(lambda v: v if v <= 1 else v/100)(assumptions.get('rate_of_return') or 0.04)*100:.1f}%"),
         row("Inflation Rate", f"{(assumptions.get('inflation_pct',0) if assumptions.get('inflation_pct',0) <= 1 else assumptions.get('inflation_pct',0)/100)*100:.1f}%"),
     ]
     info_tbl = Table(client_rows, colWidths=[PW*0.28, PW*0.22])
@@ -1292,6 +1293,12 @@ def build_snapshot_page(story, client_data, projection, ctx):
         ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
     ]))
     story.append(combined)
+    story.append(Spacer(1, 6))
+    story.extend(footer_note(
+        'Current Investable Assets reflect today\'s account balances. '
+        'Starting Portfolio reflects those balances after one year of assumed growth before retirement withdrawals begin. '
+        'For planning simplicity, all investable assets are modeled using a blended annual growth assumption; '
+        'individual asset classes may grow at different rates in practice.'))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
