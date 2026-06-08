@@ -124,20 +124,15 @@ def build_waterfall_table(
                 surplus_to_brok = round(abs(remaining_gap), 2)
                 remaining_gap = 0
 
-            # Step 2: Extra IRA draws — split evenly between client and spouse
-            if remaining_gap > 0:
-                half = round(remaining_gap / 2, 2)
-                # Client IRA extra (from available balance)
-                c_avail     = max(c_ira_bal * (1 + rate) - c_rmd_taken, 0)
-                c_ira_extra = min(half, c_avail)
-                # Spouse IRA extra
-                s_avail     = max(s_ira_bal * (1 + rate) - s_rmd_taken, 0)
-                s_ira_extra = min(remaining_gap - c_ira_extra, s_avail)
-                remaining_gap = round(remaining_gap - c_ira_extra - s_ira_extra, 2)
+            # Step 2: IRA RMDs are MANDATORY — already taken in full above.
+            # NO extra IRA draws beyond the RMD. Karen's IRA is RMD-only.
+            # Brokerage fills ALL remaining gaps after RMDs.
+            c_age_this_year = row.get("client_age", 0)
+            s_age_this_year = row.get("spouse_age", 0)
 
-            # Step 3: Brokerage
+            # Step 3: Brokerage fills remaining gap after RMDs
             if remaining_gap > 0:
-                brok_draw   = min(remaining_gap, brok_bal * (1 + rate))
+                brok_draw     = min(remaining_gap, brok_bal * (1 + rate))
                 remaining_gap = round(remaining_gap - brok_draw, 2)
 
             # Step 4: Cash & savings (last resort)
@@ -146,12 +141,15 @@ def build_waterfall_table(
                 remaining_gap = round(remaining_gap - cash_draw, 2)
 
         # ── Gross income for tax calculation ──────────────────────────────
-        ira_distributions = round(c_rmd_taken + s_rmd_taken + c_ira_extra + s_ira_extra + inh_dist, 2)
+        # inh_dist is already in total_fixed — do NOT add it again here
+        ira_distributions = round(c_rmd_taken + s_rmd_taken + c_ira_extra + s_ira_extra, 2)
         gross_income = round(total_fixed + ira_distributions, 2)
 
-        # ── Net income (before applying to need) ──────────────────────────
-        # Tax estimated separately in tax engine; net shown for reference
-        surplus = round(gross_income - need, 2)  # positive = excess, negative = shortfall
+        # ── Total cash funded vs spending need (includes non-taxable draws) ──
+        total_funded = round(gross_income + brok_draw + cash_draw, 2)
+
+        # ── Surplus/gap = total cash funded minus spending need ────────────
+        surplus = round(total_funded - need, 2)
 
         # ── Update running balances (simplified — portfolio.py does full calc) ──
         c_ira_bal = max(round(c_ira_bal * (1 + rate) + emp.get("client_401k_to_ira", 0)
