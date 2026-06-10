@@ -23,17 +23,25 @@ CONTENT_Y = HDR_TOP - HDR_H - BAR_H - 6   # 507.2 — content starts here
 FOOTER_Y  = BM + 30                 # 58.8  — content must stop here
 CONTENT_H = CONTENT_Y - FOOTER_Y   # 448.4 — fixed content zone
 
-ROW_H     = 16   # FIXED row height — never changes
+ROW_H     = 16   # default row height
 HDR_ROW_H = 22   # table header row
 NOTE_H    = 40   # advisor note box
 SBOX_H    = 44   # summary boxes
 
-def max_data_rows(has_note=False, has_sboxes=False, extra_overhead=0):
+def max_data_rows(has_note=False, has_sboxes=False, extra_overhead=0, row_h=None):
+    rh = row_h or ROW_H
     used = HDR_ROW_H + extra_overhead
     if has_note:   used += NOTE_H + 4
     if has_sboxes: used += SBOX_H + 6
     available = CONTENT_H - used
-    return max(1, int(available / ROW_H))
+    return max(1, int(available / rh))
+
+def adaptive_row_h(n_rows, has_note=False, has_sboxes=False, extra_overhead=0):
+    """Return the largest row height (16→15→14→13) that fits n_rows on one page."""
+    for rh in (16, 15, 14, 13):
+        if max_data_rows(has_note, has_sboxes, extra_overhead, rh) >= n_rows:
+            return rh
+    return 13  # minimum
 
 # ── Colors ────────────────────────────────────────────────────
 NAVY     = colors.HexColor('#0A2342')
@@ -263,17 +271,19 @@ def draw_info_rows(c, x, y, rows, w1, w2, title=None):
         y -= rh
     return y
 
-def draw_table(c, start_y, col_widths, col_aligns, headers, data_rows, hdr_height=None):
+def draw_table(c, start_y, col_widths, col_aligns, headers, data_rows, hdr_height=None, row_h=None):
     """
     Draw fixed data table. Returns y after last row.
     headers: list of str (use \\n for 2-line headers)
     hdr_height: override header row height (default HDR_ROW_H)
+    row_h: override data row height (default ROW_H)
     data_rows: list of (cells, bg_color, top_line_color_or_None)
       cells: list of (text, fg_color, bold) or just str
     """
     xs = [LM]
     for w in col_widths[:-1]: xs.append(xs[-1]+w)
     h_hdr = hdr_height or HDR_ROW_H
+    RH = row_h or ROW_H  # use adaptive row height if supplied
 
     def cell(cx, cy, w, h, text, align, fg, bold, text_size=7.5):
         fn = 'Helvetica-Bold' if bold else 'Helvetica'
@@ -322,14 +332,14 @@ def draw_table(c, start_y, col_widths, col_aligns, headers, data_rows, hdr_heigh
         if top_line:
             c.setStrokeColor(top_line); c.setLineWidth(2)
             c.line(LM, y, LM+PW, y); c.setLineWidth(0.3)
-        c.setFillColor(bg); c.rect(LM, y-ROW_H, PW, ROW_H, fill=1, stroke=0)
-        c.setStrokeColor(GRAY_LN); c.setLineWidth(0.2); c.line(LM, y-ROW_H, LM+PW, y-ROW_H)
+        c.setFillColor(bg); c.rect(LM, y-RH, PW, RH, fill=1, stroke=0)
+        c.setStrokeColor(GRAY_LN); c.setLineWidth(0.2); c.line(LM, y-RH, LM+PW, y-RH)
         for i,(ct,cx,w) in enumerate(zip(cells,xs,col_widths)):
             if isinstance(ct, tuple): txt,fg,bold = ct
             else: txt,fg,bold = str(ct),BLACK,False
             align = col_aligns[i] if i<len(col_aligns) else 'R'
-            cell(cx, y, w, ROW_H, txt, align, fg, bold)
-        y -= ROW_H
+            cell(cx, y, w, RH, txt, align, fg, bold)
+        y -= RH
 
     # Border and col dividers
     c.setStrokeColor(GRAY_LN); c.setLineWidth(0.4)
@@ -720,9 +730,9 @@ def build_income_projection(c, pg, total_pg, client_data, projection, ctx):
         ages  = f"{r['client_age']}/{r.get('spouse_age','')}" if r.get('spouse_age') else str(r['client_age'])
         bg    = TEAL_JMP if is_jump else (WHITE if odd else GRAY_BG)
 
-        # Na display for zero RMD before age 73
+        # Consistent formatting for RMD columns — use '—' for all pre-RMD years
         def rmd_fmt(v, age, rmd_age=73):
-            if age < rmd_age: return ('N/A', GRAY_MD, False)
+            if age < rmd_age: return ('—', GRAY_MD, False)
             return (fmt(v) if v else '—', BLUE, True)
 
         c_age = r.get('client_age', 0)
@@ -744,7 +754,7 @@ def build_income_projection(c, pg, total_pg, client_data, projection, ctx):
         rows.append((cells, bg, top))
         odd = not odd
 
-    # Totals row
+    # Totals row — labels aligned to their correct columns
     rows.append(([
         ('Totals', BLACK, True),
         (fmt(summary['lifetime_ss']), NAVY, True),
@@ -763,7 +773,7 @@ def build_income_projection(c, pg, total_pg, client_data, projection, ctx):
     # Footnote — 2 lines so nothing is cut off
     c.setFillColor(GRAY_MD); c.setFont('Helvetica', 6.5)
     line1 = (f'Assumptions: {ror*100:.1f}% growth, {inf*100:.1f}% inflation, SS COLA annually, RMDs at age 73 per IRS Uniform Lifetime Table, 85% SS taxable, 2024 brackets. '
-             'N/A = RMD not yet required (under age 73).')
+             '— = not applicable (no balance or RMD not yet required).')
     line2 = ('IRA/inherited IRA distributions taxable as ordinary income. Brokerage earnings and draws included in tax base. '
              'Federal and state tax estimates only — actual results vary.')
     c.drawString(LM, end_y - 8, line1)
@@ -829,14 +839,11 @@ def build_retirement_years(c, pg, total_pg, client_data, projection, ctx):
 
     ret = [r for r in years if r.get('phase','') not in ('working','transitioning')
            and not(not r.get('client_alive',True) and not r.get('spouse_alive',True) and r.get('gross_income',0)==0)]
-    # first 20 annual + every 5 after
-    disp0 = [(r,False) for r in ret[:20]] + [(r,True) for i,r in enumerate(ret[20:]) if i%5==0]
-    disp0_rows = [r for r,_ in disp0]
-    max_r = max_data_rows(has_note=True, has_sboxes=True, extra_overhead=46)  # 34pt double header + 12pt sbox buffer
-    collapsed = smart_collapse(disp0_rows, max_r)
-    # merge is_5 flags
-    is5_map = {id(r): f for r,f in disp0}
-    final = [(r, is5_map.get(id(r),False) or is_j) for r,is_j in collapsed]
+    # Adaptive row height — shrink to fit all rows on one page
+    n_ret = len(ret)
+    rh = adaptive_row_h(n_ret, has_note=True, has_sboxes=True, extra_overhead=46)
+    max_r = max_data_rows(has_note=True, has_sboxes=True, extra_overhead=46, row_h=rh)
+    collapsed = smart_collapse(ret, max_r)
 
     # 11 columns — Gross Income = all sources incl. asset draw, clean Gross→Tax→Net flow
     cw = [w*PW for w in [0.08, 0.08, 0.08, 0.075, 0.07, 0.07, 0.09, 0.08, 0.09, 0.09, 0.10]]
@@ -856,7 +863,7 @@ def build_retirement_years(c, pg, total_pg, client_data, projection, ctx):
     ]
 
     rows = []; odd = True
-    for r,is_teal in final:
+    for r,is_teal in collapsed:
         c_ss  = r.get('client_ss',0); s_ss = r.get('spouse_ss',0)
         fixed = r.get('fixed_income',0) + r.get('inherited_ira_dist',0)
         c_ira = r.get('client_rmd_taken',0) + r.get('client_ira_extra',0)
@@ -885,7 +892,7 @@ def build_retirement_years(c, pg, total_pg, client_data, projection, ctx):
         ], bg, top))
         odd = not odd
 
-    end_y = draw_table(c, y, cw, aligns, hdr_flat, rows, hdr_height=34)
+    end_y = draw_table(c, y, cw, aligns, hdr_flat, rows, hdr_height=34, row_h=rh)
     draw_sboxes(c, end_y-6, [
         (NAVY,'Lifetime Gross',f"${summary.get('lifetime_gross',0):,.0f} total gross income."),
         (AMBER,'Lifetime Taxes',f"${summary.get('lifetime_federal_tax',0):,.0f} fed + ${summary.get('lifetime_state_tax',0):,.0f} state."),
@@ -917,12 +924,15 @@ def build_waterfall(c, pg, total_pg, client_data, projection, ctx):
 
     # Build display rows — all live years
     live = [r for r in years if not(not r.get('client_alive',True) and not r.get('spouse_alive',True) and r.get('gross_income',0)==0)]
-    max_r = max_data_rows(has_note=True, has_sboxes=True, extra_overhead=46)  # 34pt double header + sbox buffer
-    # add phase rows count to overhead
-    phases = set(); phase_count = 0
+    # Count phase header rows (1 per unique phase transition)
+    phases_seen = set(); phase_headers = 0
     for r in live:
-        if r.get('phase','') not in phases: phases.add(r.get('phase','')); phase_count += 1
-    max_r = max(1, max_r - phase_count)
+        ph = r.get('phase','')
+        if ph not in phases_seen: phases_seen.add(ph); phase_headers += 1
+    # Adaptive row height to fit all data rows + phase header rows
+    n_total = len(live) + phase_headers
+    rh_wf = adaptive_row_h(n_total, has_note=True, has_sboxes=True, extra_overhead=46)
+    max_r = max(1, max_data_rows(has_note=True, has_sboxes=True, extra_overhead=46, row_h=rh_wf) - phase_headers)
     collapsed = smart_collapse(live, max_r)
 
     cw = [w*PW for w in [0.065,0.048,0.048,0.048,0.058,0.055,0.058,0.062,0.055,0.055,0.055,0.045,0.075,0.062,0.062]]
@@ -971,7 +981,7 @@ def build_waterfall(c, pg, total_pg, client_data, projection, ctx):
         ], bg, top))
         odd = not odd
 
-    end_y = draw_table(c, y, cw, aligns, hdr_flat, rows, hdr_height=34)
+    end_y = draw_table(c, y, cw, aligns, hdr_flat, rows, hdr_height=34, row_h=rh_wf)
     sp = projection['summary'].get('starting_portfolio',0); ep = projection['summary'].get('ending_portfolio',0)
     draw_sboxes(c, end_y-6, [
         (NAVY,'Starting Portfolio',f'${sp:,.0f}'),
@@ -1055,6 +1065,12 @@ def build_account_balances(c, pg, total_pg, client_data, projection, ctx):
     cash  = get_acct('cash_open','cash_earn','cash_draw','cash_close')
 
     MAX_R = max_data_rows(has_note=False, extra_overhead=50)  # 50 for two mini-table headers
+    # Adaptive: if more rows than MAX_R, shrink row height
+    n_acct = max(len(s_ira), len(brok), len(c_ira), len(cash))
+    acct_rh = ROW_H
+    for rh_try in (16, 15, 14, 13):
+        if max_data_rows(has_note=False, extra_overhead=50, row_h=rh_try) >= n_acct:
+            acct_rh = rh_try; break
 
     def mini_table(c, start_x, start_y, title, color, data, half_w):
         cw = [half_w*r for r in [0.17,0.17,0.14,0.17,0.17,0.18]]
@@ -1076,9 +1092,9 @@ def build_account_balances(c, pg, total_pg, client_data, projection, ctx):
             c.setFillColor(colors.HexColor('#00000020')); c.rect(x, ty-HDR_ROW_H, w, HDR_ROW_H, fill=1, stroke=0)
             c.setFillColor(WHITE); c.setFont('Helvetica-Bold',7); c.drawCentredString(x+w/2, ty-HDR_ROW_H+5, hdr)
         ty -= HDR_ROW_H
-        # Data rows — limit to MAX_R
+        # Data rows — use adaptive row height
         for i,(yr,opn,contrib,earn,draw,cl) in enumerate(data[:MAX_R]):
-            bg = WHITE if i%2==0 else GRAY_BG; rh = ROW_H
+            bg = WHITE if i%2==0 else GRAY_BG; rh = acct_rh
             c.setFillColor(bg); c.rect(start_x, ty-rh, half_w, rh, fill=1, stroke=0)
             c.setStrokeColor(GRAY_LN); c.setLineWidth(0.2); c.line(start_x, ty-rh, start_x+half_w, ty-rh)
             vals = [(str(yr),GRAY_MD,False),(fmt(opn,False),CHARCOAL,False),(fmt(contrib,False) if contrib else '—',TEAL,True),(fmt(earn,False),GREEN,False),(f'({fmt(draw,False)})' if draw else '—',RED,True),(fmt(cl,False),NAVY,True)]
@@ -1127,7 +1143,8 @@ def build_portfolio_summary(c, pg, total_pg, client_data, projection, ctx):
     draw_footer(c)
 
     live = [r for r in years if r.get('client_alive',True) or r.get('spouse_alive',True)]
-    max_r = max_data_rows(has_note=False, extra_overhead=14)
+    rh_port = adaptive_row_h(len(live), has_note=False, extra_overhead=14)
+    max_r = max_data_rows(has_note=False, extra_overhead=14, row_h=rh_port)
     collapsed = smart_collapse(live, max_r)
 
     cw = [w*PW for w in [0.06,0.07,0.07,0.09,0.07,0.07,0.07,0.07,0.06,0.11,0.08]]
