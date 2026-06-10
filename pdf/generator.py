@@ -636,16 +636,42 @@ def build_income_tax(c, pg, total_pg, client_data, projection, ctx):
     s_st = ss_data.get('spouse_status',''); s_mo = ss_data.get('spouse_monthly',0) or 0; s_age = ss_data.get('spouse_file_age','')
     lt_ss = summary.get('lifetime_ss',0)
 
+    def _fra(dob_str):
+        try: yr = int(dob_str[:4])
+        except: return 67
+        if yr <= 1937: return 65
+        elif yr <= 1959: return 66
+        else: return 67
+
+    def _early_reduction(file_age, fra):
+        months_early = max(0, (fra - file_age) * 12)
+        if months_early == 0: return 1.0
+        first_36 = min(months_early, 36); beyond_36 = max(months_early - 36, 0)
+        return round(1.0 - (first_36 * (5/9) + beyond_36 * (5/12)) / 100, 6)
+
+    def _display_mo(mo, status, file_age, dob_str):
+        if status in ('will_file','file_at_age') and file_age and mo:
+            return round(mo * _early_reduction(int(file_age), _fra(dob_str)), 0)
+        return mo
+
+    c_dob = client.get('dob',''); s_dob = spouse.get('dob','') if spouse else ''
+    c_mo_disp = _display_mo(c_mo, c_st, c_age, c_dob)
+    s_mo_disp = _display_mo(s_mo, s_st, s_age, s_dob)
+
     ss_rows = []
     if c_st and c_st!='none':
         ss_rows.append((f'{cname} Status', status_lbl(c_st)))
-        if c_mo > 0: ss_rows.append((f'{cname} Monthly Benefit', f'${c_mo:,.0f} /mo'))
+        if c_mo_disp > 0: ss_rows.append((f'{cname} Monthly Benefit', f'${c_mo_disp:,.0f} /mo'))
+        if c_mo > 0 and c_mo_disp != c_mo and c_st not in ('collecting',):
+            ss_rows.append((f'{cname} FRA Benefit', f'${c_mo:,.0f} /mo'))
         if c_age and c_st != 'collecting': ss_rows.append((f'{cname} File Age', str(c_age)))
     if spouse and s_st and s_st!='none':
         ss_rows.append((f'{sname} Status', status_lbl(s_st)))
-        if s_mo > 0: ss_rows.append((f'{sname} Monthly Benefit', f'${s_mo:,.0f} /mo'))
+        if s_mo_disp > 0: ss_rows.append((f'{sname} Monthly Benefit', f'${s_mo_disp:,.0f} /mo'))
+        if s_mo > 0 and s_mo_disp != s_mo and s_st not in ('collecting',):
+            ss_rows.append((f'{sname} FRA Benefit', f'${s_mo:,.0f} /mo'))
         if s_age and s_st != 'collecting': ss_rows.append((f'{sname} File Age', str(s_age)))
-    comb = c_mo + s_mo
+    comb = c_mo_disp + s_mo_disp
     if comb > 0: ss_rows.append(('Combined Monthly SS', f'${comb:,.0f} /mo'))
     ss_rows.append(('Lifetime SS (est.)', f'${lt_ss:,.0f}'))
     if not ss_rows: ss_rows = [('Social Security','Not applicable')]
