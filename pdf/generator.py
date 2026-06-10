@@ -1499,16 +1499,28 @@ def build_estate_summary(c, pg, total_pg, client_data, projection, ctx):
         return f'+{g:.1f}%' if g >= 0 else f'{g:.1f}%'
 
     def note_for(lbl):
-        notes = {
-            'Client IRA / 401(k)':  'RMD withdrawals begin at age 73',
-            'Spouse IRA / 401(k)':  'RMD withdrawals begin at age 73',
-            'Inherited IRA':        'Must fully distribute by year 10',
-            'Joint Brokerage':      'Draws fund spending gap as needed',
-            'Cash & Savings':       'Reserve — drawn last',
-            'Deferred Annuity':     'Not drawn — legacy asset',
-            'Home Equity':          f'Appreciates at {ror*100:.1f}%/yr · not drawn',
-        }
-        return notes.get(lbl, '')
+        if 'Annuity'   in lbl: return 'Deferred accumulation — no withdrawals assumed'
+        if 'Home'      in lbl: return f'Appreciates at {ror*100:.1f}%/yr — not a spending asset'
+        if 'Inherited' in lbl: return '10-Year Rule — fully distributed per IRS schedule'
+        if 'Money'     in lbl: return 'Sub-account of brokerage — included in brokerage total'
+        if 'IRA'       in lbl: return 'RMD withdrawals reduce balance from age 73'
+        if 'Brokerage' in lbl: return 'Draws fund spending gap per waterfall strategy'
+        if 'Cash'      in lbl: return 'Reserve — drawn last'
+        return ''
+
+    # Table rows — investable first, then legacy
+    rows_data = [
+        ('Client IRA / 401(k)',  c_ira_st,  c_ira_end,  NAVY),
+        ('Spouse IRA / 401(k)',  s_ira_st,  s_ira_end,  TEAL),
+        ('Inherited IRA',        inh_st,    inh_end,    AMBER),
+        ('Joint Brokerage',      brok_st,   brok_end,   GREEN),
+        ('Money Market',         mm_st,     0,          GRAY_MD),
+        ('Cash & Savings',       cash_st,   cash_end,   GRAY_MD),
+        ('Other Assets',         oth_st,    oth_end,    GRAY_MD),
+        ('Deferred Annuity',     ann_st,    ann_end,    PURPLE),
+        ('Home Equity',          home_st,   home_end,   GOLD),
+    ]
+
     tbl_rows = []
     total_curr_tbl = 0; total_proj_tbl = 0
     for lbl, curr, proj_v, color in rows_data:
