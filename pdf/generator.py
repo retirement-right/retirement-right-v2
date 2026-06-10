@@ -606,10 +606,9 @@ def build_snapshot(c, pg, total_pg, client_data, projection, ctx):
         home_disp = f'${home_equity:,.0f}' if mortgage else f'${home:,.0f}'
         ai_rows += [(home_lbl, home_disp, False),('Total Net Assets', f'${total_inv+home_equity:,.0f}', False)]
 
-    # Add footnote row explaining starting portfolio difference
-    start_p = summary.get('starting_portfolio', 0) or 0
-    if start_p > total_inv:
-        ai_rows.append(('† Starting Portfolio includes working-year', f'401k growth & contributions', True))
+    # Note: Starting Portfolio on other pages may be higher than Total Investable
+    # because it reflects portfolio value after working-year 401k contributions and growth
+    ai_rows.append(('† Starting Portfolio reflects portfolio at retirement', 'after 401k contributions & growth', True))
 
     for i,(lbl,val,is_sub) in enumerate(ai_rows):
         bg = WHITE if i%2==0 else GRAY_BG
