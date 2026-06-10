@@ -104,6 +104,9 @@ def normalize_assets(assets):
     flat['cash'] = ((cash.get('client_balance',0) or 0)+(cash.get('spouse_balance',0) or 0)) if isinstance(cash,dict) else (cash or 0)
     flat['annuity_balance']    = assets.get('annuity_value', 0) or 0
     flat['real_estate_equity'] = assets.get('real_estate_equity', 0) or 0
+    roth = assets.get('ira_roth', {})
+    flat['client_roth'] = (roth.get('client_balance', 0) or 0) if isinstance(roth, dict) else 0
+    flat['spouse_roth'] = (roth.get('spouse_balance', 0) or 0) if isinstance(roth, dict) else 0
     flat['home_value']         = assets.get('primary_home_value', 0) or 0
     others = assets.get('other_assets', [])
     flat['other_client'] = sum(o.get('balance',0) or 0 for o in others) if isinstance(others,list) else (assets.get('other_client',0) or 0)
@@ -131,8 +134,9 @@ def normalize_meta(client_data):
 
 def total_investable(a):
     # money_market is a sub-account of brokerage — do NOT include separately
+    # real_estate_equity excluded — shown separately as non-investable home equity
     keys = ['client_ira','spouse_ira','brokerage','cash',
-            'annuity_balance','real_estate_equity','other_client','other_spouse']
+            'annuity_balance','other_client','other_spouse']
     total = sum(a.get(k,0) or 0 for k in keys)
     inh = a.get('ira_inherited') or {}
     total += (inh.get('balance',0) or 0) if isinstance(inh,dict) else 0
@@ -1285,6 +1289,13 @@ def build_schwab_statement(c, pg, total_pg, client_data, projection, ctx):
     cash_open, _, cash_earn, cash_draw, cash_close = lifetime(
         'cash_open','cash_earn','cash_draw')
 
+    # Roth IRA — grows at ROR, no distributions in base case
+    assets_roth  = normalize_assets(client_data.get('assets', {}))
+    roth_open    = assets_roth.get('client_roth', 0) or 0
+    roth_close   = round(roth_open * ((1 + ror) ** len(years)), 0) if roth_open else 0
+    roth_earn    = roth_close - roth_open
+    has_roth     = roth_open > 0
+
     inh = assets.get('ira_inherited') or {}
     inh_open  = inh.get('balance', 0) if isinstance(inh, dict) else 0
     inh_earn  = sum(r.get('inherited_ira_dist', 0) * 0 for r in years)  # no growth — fixed distribution
@@ -1313,6 +1324,13 @@ def build_schwab_statement(c, pg, total_pg, client_data, projection, ctx):
                           'Account ending in ••••',
                           s_ira_open, s_ira_cont, s_ira_earn, s_ira_draw, s_ira_close,
                           TEAL, show_rmd_note=has_rmd)
+
+    if has_roth:
+        y = account_block(y, f"{cname}'s Roth IRA",
+                          'Roth IRA — Tax-Free Growth',
+                          'Account ending in ••••',
+                          roth_open, 0, roth_earn, 0, roth_close,
+                          PURPLE)
 
     if has_inh:
         y = account_block(y, 'Inherited IRA — 10-Year Rule',
@@ -1525,10 +1543,11 @@ def generate_pdf(client_data: dict, projection: dict) -> bytes:
     s_st = ss_data.get('spouse_status',''); s_fa = ss_data.get('spouse_file_age','')
 
     def ss_lbl(status, name, fa):
-        if status=='collecting': return f'{name} SS collecting'
-        if status=='will_file' and fa: return f'{name} files SS @ {fa}'
-        if status=='none': return f'{name} no SS'
-        return f'{name} SS {status}'
+        if status == 'collecting':                          return f'{name} SS collecting'
+        if status in ('will_file','file_at_age') and fa:   return f'{name} SS age {fa}'
+        if status in ('will_file','file_at_age'):           return f'{name} files SS at retirement'
+        if status == 'none':                                return f'{name} no SS'
+        return f'{name} SS collecting'
 
     ss_info = ss_lbl(c_st, client.get('first_name','Client'), c_fa)
     if spouse: ss_info += '  |  ' + ss_lbl(s_st, spouse.get('first_name','Spouse'), s_fa)
