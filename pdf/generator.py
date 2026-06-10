@@ -1212,8 +1212,8 @@ def build_schwab_statement(c, pg, total_pg, client_data, projection, ctx):
     # ── Helper: draw one account block ───────────────────────────────────
     def account_block(y, acct_name, acct_type, acct_num, open_bal, contributions,
                       earnings, withdrawals, close_bal, color, show_rmd_note=False):
-        BH = 36   # block header height — tall enough for name + type on two clear lines
-        RH = 20   # row height — spacious so labels are readable
+        BH = 28   # block header height — tall enough for name + type on two clear lines
+        RH = 14   # row height — spacious so labels are readable
         rows = [
             ('Opening Balance', open_bal, BLACK, False),
             ('Contributions / Deposits', contributions, TEAL, False),
