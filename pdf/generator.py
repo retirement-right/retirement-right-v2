@@ -443,10 +443,14 @@ def build_exec_summary(c, pg, total_pg, client_data, projection, ctx):
     section_block('What You Are Doing Well', doing, GREEN)
     y -= 4
 
+    inh_check = assets.get('ira_inherited') or {}
+    has_inh_ira_exec = bool(isinstance(inh_check, dict) and inh_check.get('balance', 0))
+
     opps = [f'With {inf*100:.1f}% inflation, income need grows to ~${spend*(1+inf)**proj_y:,.0f} by end of projection.',
-            'Review tax brackets annually — Roth conversions may reduce lifetime tax burden.',
-            'Inherited IRA 10-year rule requires careful annual planning to avoid bracket spikes.',
-            'Annual portfolio rebalancing ensures assumed rate of return remains achievable.']
+            'Review tax brackets annually — Roth conversions may reduce lifetime tax burden.']
+    if has_inh_ira_exec:
+        opps.append('Inherited IRA 10-year rule requires careful annual planning to avoid bracket spikes.')
+    opps.append('Annual portfolio rebalancing ensures assumed rate of return remains achievable.')
     section_block('Planning Opportunities', opps, NAVY)
     y -= 8
 
@@ -1223,11 +1227,12 @@ def build_schwab_statement(c, pg, total_pg, client_data, projection, ctx):
         c.setFillColor(color)
         c.rect(LM, y - BH, PW, BH, fill=1, stroke=0)
         c.setFillColor(WHITE); c.setFont('Helvetica-Bold', 10)
-        c.drawString(LM + 12, y - 14, acct_name)
+        c.drawString(LM + 12, y - 14, str(acct_name))
         c.setFillColor(colors.HexColor('#FFFFFF90')); c.setFont('Helvetica', 8)
         c.drawString(LM + 12, y - 26, f'{acct_type}  ·  {acct_num}')
         c.setFillColor(WHITE); c.setFont('Helvetica-Bold', 11)
-        c.drawRightString(PAGE_W - RM - 12, y - 14, fmt(close_bal, zero_dash=False))
+        close_disp = fmt(close_bal, zero_dash=False) if close_bal else '$0'
+        c.drawRightString(PAGE_W - RM - 12, y - 14, close_disp)
         c.setFillColor(colors.HexColor('#FFFFFF90')); c.setFont('Helvetica', 7.5)
         c.drawRightString(PAGE_W - RM - 12, y - 26, 'Current Balance')
         y -= BH
@@ -1473,7 +1478,7 @@ def build_estate_summary(c, pg, total_pg, client_data, projection, ctx):
             total_curr_tbl += curr
             total_proj_tbl += proj_v
         odd = len(tbl_rows) % 2 == 0
-        proj_disp = fmt(proj_v, False) if proj_v > 0 else '(in Brokerage)'
+        proj_disp = fmt(proj_v, False) if proj_v > 0 else ('—' if 'Cash' in lbl else '(in Brokerage)')
         tbl_rows.append(([
             (lbl, color, True),
             (fmt(curr, False), BLACK, False),
