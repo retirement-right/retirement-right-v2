@@ -263,33 +263,57 @@ def draw_info_rows(c, x, y, rows, w1, w2, title=None):
         y -= rh
     return y
 
-def draw_table(c, start_y, col_widths, col_aligns, headers, data_rows):
+def draw_table(c, start_y, col_widths, col_aligns, headers, data_rows, hdr_height=None):
     """
     Draw fixed data table. Returns y after last row.
-    headers: list of str
+    headers: list of str (use \\n for 2-line headers)
+    hdr_height: override header row height (default HDR_ROW_H)
     data_rows: list of (cells, bg_color, top_line_color_or_None)
       cells: list of (text, fg_color, bold) or just str
     """
     xs = [LM]
     for w in col_widths[:-1]: xs.append(xs[-1]+w)
+    h_hdr = hdr_height or HDR_ROW_H
 
     def cell(cx, cy, w, h, text, align, fg, bold, text_size=7.5):
         fn = 'Helvetica-Bold' if bold else 'Helvetica'
         c.setFont(fn, text_size); c.setFillColor(fg)
-        pad = 4; s = str(text)[:22]
+        pad = 4; s = str(text)[:24]
         if align=='L': c.drawString(cx+pad, cy-h+4, s)
         elif align=='C': c.drawCentredString(cx+w/2, cy-h+4, s)
         else: c.drawRightString(cx+w-pad, cy-h+4, s)
 
+    def hdr_cell(cx, cy, w, h, text, align, text_size=7):
+        """Draw header with optional 2-line wrap on \\n."""
+        fn = 'Helvetica-Bold'
+        c.setFont(fn, text_size); c.setFillColor(WHITE)
+        pad = 3
+        parts = str(text).split('\n') if '\n' in str(text) else [str(text)]
+        if len(parts) == 2:
+            # Two lines — center vertically
+            line_h = text_size + 1.5
+            y1 = cy - h/2 - line_h/2 + line_h
+            y2 = cy - h/2 - line_h/2
+            for line, ypos in [(parts[0], y1), (parts[1], y2)]:
+                if align=='L': c.drawString(cx+pad, ypos, line)
+                elif align=='C': c.drawCentredString(cx+w/2, ypos, line)
+                else: c.drawRightString(cx+w-pad, ypos, line)
+        else:
+            # Single line — center vertically
+            ypos = cy - h/2 - text_size/2 + 1
+            if align=='L': c.drawString(cx+pad, ypos, parts[0])
+            elif align=='C': c.drawCentredString(cx+w/2, ypos, parts[0])
+            else: c.drawRightString(cx+w-pad, ypos, parts[0])
+
     # Header
     y = start_y
     for i,(hdr,cx,w) in enumerate(zip(headers,xs,col_widths)):
-        c.setFillColor(NAVY); c.rect(cx, y-HDR_ROW_H, w, HDR_ROW_H, fill=1, stroke=0)
+        c.setFillColor(NAVY); c.rect(cx, y-h_hdr, w, h_hdr, fill=1, stroke=0)
         align = col_aligns[i] if i<len(col_aligns) else 'R'
-        cell(cx, y, w, HDR_ROW_H, hdr, align, WHITE, True)
+        hdr_cell(cx, y, w, h_hdr, hdr, align)
     c.setStrokeColor(colors.HexColor('#FFFFFF30')); c.setLineWidth(0.3)
-    for cx,w in zip(xs,col_widths): c.rect(cx, y-HDR_ROW_H, w, HDR_ROW_H, fill=0, stroke=1)
-    y -= HDR_ROW_H
+    for cx,w in zip(xs,col_widths): c.rect(cx, y-h_hdr, w, h_hdr, fill=0, stroke=1)
+    y -= h_hdr
 
     # Data
     for row_data in data_rows:
@@ -585,7 +609,7 @@ def build_income_tax(c, pg, total_pg, client_data, projection, ctx):
     draw_bar(c, 'LIFETIME INCOME & TAX ANALYSIS')
     draw_footer(c)
 
-    y = CONTENT_Y
+    y = CONTENT_Y - 12  # breathing room below the blue bar
 
     def status_lbl(st):
         return {'collecting':'Currently Collecting','will_file':'Will File at Age','not_started':'Not Started','none':'Not Applicable'}.get(st, st.replace('_',' ').title() if st else '—')
@@ -622,7 +646,7 @@ def build_income_tax(c, pg, total_pg, client_data, projection, ctx):
     w1a = col1*0.58; w1b = col1*0.42; w2a = col2*0.56; w2b = col2*0.44; w3a = col3*0.54; w3b = col3*0.46
 
     y = draw_info_rows(c, LM, y, ss_rows, w1a, w1b, 'Social Security Plan')
-    y_tax = CONTENT_Y; draw_info_rows(c, LM+col1, y_tax, tax_rows, w2a, w2b, 'Lifetime Tax Summary')
+    y_tax = CONTENT_Y - 12; draw_info_rows(c, LM+col1, y_tax, tax_rows, w2a, w2b, 'Lifetime Tax Summary')
     draw_info_rows(c, LM+col1+col2, y_tax, port_rows, w3a, w3b, 'Portfolio Summary')
 
     notes, legacy = normalize_meta(client_data)
@@ -658,100 +682,92 @@ def build_income_projection(c, pg, total_pg, client_data, projection, ctx):
     draw_bar(c, f'PROJECTED ANNUAL INCOME — {len(display)} YEAR PROJECTION', f'LIFETIME GROSS ${summary["lifetime_gross"]:,.0f}  |  NET ${summary["lifetime_net"]:,.0f}')
     draw_footer(c)
 
-    # Check if any working years exist in this projection
-    has_working_years = any(r.get('employment_income',0) > 0 for r in display)
+    # 10 columns — must sum exactly to 1.0 to fill full page width
+    cw = [w*PW for w in [0.08, 0.09, 0.09, 0.09, 0.08, 0.08, 0.08, 0.09, 0.09, 0.12]]
+    aligns = ['L','R','R','R','R','R','R','R','R','R']
+    hdr_flat = [
+        'Year',
+        f'{cname}\nSocial Security',
+        f'{sname}\nSocial Security',
+        'Inh-IRA /\nOther',
+        f'IRA/RMD\n{cname}',
+        f'IRA/RMD\n{sname}',
+        'Asset\nDrawdown',
+        'Total\nIncome',
+        'Estimated\nTaxes',
+        'Reserves After\nWithdrawals',
+    ]
 
-    if has_working_years:
-        # 13 columns including Employment
-        cw = [w*PW for w in [0.072, 0.072, 0.060, 0.060, 0.055, 0.055, 0.055, 0.068, 0.065, 0.075, 0.075, 0.082, 0.096]]
-        aligns = ['L','R','R','R','R','R','R','R','R','R','R','R','R']
-        hdr_flat = ['Year', 'Employment', f'{cname} SS', f'{sname} SS', 'Pension/Other', 'IRA/RMD', 'Asset Draw', 'Gross Income', 'Est. Taxes', 'Net Income', 'Need', 'Total Funded', 'Reserves']
-    else:
-        # 12 columns — no employment column needed
-        cw = [w*PW for w in [0.075, 0.065, 0.065, 0.065, 0.065, 0.065, 0.075, 0.075, 0.08, 0.08, 0.09, 0.10]]
-        aligns = ['L','R','R','R','R','R','R','R','R','R','R','R']
-        hdr_flat = ['Year', f'{cname} SS', f'{sname} SS', 'Pension/Other', 'IRA/RMD', 'Asset Draw', 'Gross Income', 'Est. Taxes', 'Net Income', 'Need', 'Total Funded', 'Reserves']
-
-    max_r = max_data_rows(has_note=False, extra_overhead=20)
+    max_r = max_data_rows(has_note=False, extra_overhead=46)  # 34pt double header + 17pt 2-line footnote
     collapsed = smart_collapse(display, max_r)
 
     rows = []
     odd = True
     for r, is_jump in collapsed:
-        emp   = r.get('employment_income', 0)
-        c_ss  = r.get('client_ss',0); s_ss = r.get('spouse_ss',0)
-        fixed = r.get('fixed_income',0) + r.get('inherited_ira_dist',0)
-        ira_d = r.get('ira_distributions',0)
-        adraw = r.get('brokerage_draw',0)+r.get('cash_draw',0)+r.get('real_estate_draw',0)
-        gross = r.get('gross_income',0); taxes = r.get('total_tax',0)
-        net   = r.get('net_income',0);   need  = r.get('spending_need',0)
-        total_funded = gross + adraw
-        funded_fg = GREEN if abs(total_funded - need) < 2 else (RED if total_funded < need else GOLD)
-        port  = r.get('total_portfolio',0)
-        ages  = f"{r['client_age']}/{r.get('spouse_age','')}" if r.get('spouse_age') else str(r['client_age'])
-        bg    = TEAL_JMP if is_jump else (TEAL_LT if emp > 0 else (WHITE if odd else GRAY_BG))
-        funded_txt = fmt(total_funded, zero_dash=False)
+        c_ss   = r.get('client_ss', 0)
+        s_ss   = r.get('spouse_ss', 0)
+        inh    = r.get('inherited_ira_dist', 0)
+        c_rmd  = r.get('client_rmd_taken', 0)   # Michael IRA RMD (principal)
+        s_rmd  = r.get('spouse_rmd_taken', 0)   # Karen IRA RMD (spouse)
+        adraw  = r.get('brokerage_draw', 0) + r.get('cash_draw', 0)
+        need   = r.get('spending_need', 0)
+        taxes  = r.get('total_tax', 0)
+        port   = r.get('total_portfolio', 0)
 
-        if has_working_years:
-            cells = [
-                (f"{r['year']}\n{ages}", GRAY_MD, False),
-                (fmt(emp) if emp else '—', TEAL, True),
-                (fmt(c_ss), NAVY, True), (fmt(s_ss), NAVY, True),
-                (fmt(fixed), NAVY, True), (fmt(ira_d), BLUE, True),
-                (fmt(adraw) if adraw else '—', TEAL, True),
-                (fmt(gross), BLACK, False), (fmt(taxes), AMBER, True),
-                (fmt(net), GREEN, True), (fmt(need), PURPLE, True),
-                (funded_txt, funded_fg, True), (fmt(port), NAVY, True)
-            ]
-        else:
-            cells = [
-                (f"{r['year']}\n{ages}", GRAY_MD, False),
-                (fmt(c_ss), NAVY, True), (fmt(s_ss), NAVY, True),
-                (fmt(fixed), NAVY, True), (fmt(ira_d), BLUE, True),
-                (fmt(adraw) if adraw else '—', TEAL, True),
-                (fmt(gross), BLACK, False), (fmt(taxes), AMBER, True),
-                (fmt(net), GREEN, True), (fmt(need), PURPLE, True),
-                (funded_txt, funded_fg, True), (fmt(port), NAVY, True)
-            ]
+        # Total Income = what the client receives to meet need
+        total_income = c_ss + s_ss + inh + c_rmd + s_rmd + adraw
+
+        ages  = f"{r['client_age']}/{r.get('spouse_age','')}" if r.get('spouse_age') else str(r['client_age'])
+        bg    = TEAL_JMP if is_jump else (WHITE if odd else GRAY_BG)
+
+        # Na display for zero RMD before age 73
+        def rmd_fmt(v, age, rmd_age=73):
+            if age < rmd_age: return ('N/A', GRAY_MD, False)
+            return (fmt(v) if v else '—', BLUE, True)
+
+        c_age = r.get('client_age', 0)
+        s_age = r.get('spouse_age', 0) or 0
+
+        cells = [
+            (f"{r['year']}\n{ages}", GRAY_MD, False),
+            (fmt(c_ss), NAVY, True),
+            (fmt(s_ss), NAVY, True),
+            (fmt(inh), AMBER, True),
+            rmd_fmt(c_rmd, c_age),
+            rmd_fmt(s_rmd, s_age),
+            (fmt(adraw) if adraw else '—', TEAL, True),
+            (fmt(total_income, zero_dash=False), BLACK, True),
+            (fmt(taxes), AMBER, True),
+            (fmt(port), NAVY, True),
+        ]
         top = TEAL if is_jump else None
         rows.append((cells, bg, top))
         odd = not odd
 
     # Totals row
-    if has_working_years:
-        lt_emp = sum(r.get('employment_income',0) for r in display)
-        rows.append(([
-            ('Totals', BLACK, True),
-            (fmt(lt_emp), TEAL, True),
-            (fmt(summary['lifetime_ss']), NAVY, True), ('',BLACK,False),
-            ('',BLACK,False), ('',BLACK,False), ('',BLACK,False),
-            (fmt(summary['lifetime_gross']), BLACK, True),
-            (fmt(summary['lifetime_federal_tax']+summary['lifetime_state_tax']), AMBER, True),
-            (fmt(summary['lifetime_net']), GREEN, True),
-            ('',BLACK,False), ('',BLACK,False),
-            (fmt(summary['ending_portfolio']), NAVY, True)
-        ], GRAY_BG, GRAY_LN))
-    else:
-        rows.append(([
-            ('Totals', BLACK, True),
-            (fmt(summary['lifetime_ss']), NAVY, True), ('',BLACK,False),
-            ('',BLACK,False), ('',BLACK,False), ('',BLACK,False),
-            (fmt(summary['lifetime_gross']), BLACK, True),
-            (fmt(summary['lifetime_federal_tax']+summary['lifetime_state_tax']), AMBER, True),
-            (fmt(summary['lifetime_net']), GREEN, True),
-            ('',BLACK,False), ('',BLACK,False),
-            (fmt(summary['ending_portfolio']), NAVY, True)
-        ], GRAY_BG, GRAY_LN))
+    rows.append(([
+        ('Totals', BLACK, True),
+        (fmt(summary['lifetime_ss']), NAVY, True),
+        ('', BLACK, False),
+        ('', BLACK, False),
+        ('', BLACK, False),
+        ('', BLACK, False),
+        ('', BLACK, False),
+        (fmt(summary['lifetime_gross']), BLACK, True),
+        (fmt(summary['lifetime_federal_tax']+summary['lifetime_state_tax']), AMBER, True),
+        (fmt(summary['ending_portfolio']), NAVY, True),
+    ], GRAY_BG, GRAY_LN))
 
-    end_y = draw_table(c, CONTENT_Y, cw, aligns, hdr_flat, rows)
+    end_y = draw_table(c, CONTENT_Y, cw, aligns, hdr_flat, rows, hdr_height=34)
 
-    # Footnote with tax disclosure
-    c.setFillColor(GRAY_MD); c.setFont('Helvetica',6.5)
-    note = (f'Assumptions: {ror*100:.1f}% growth, {inf*100:.1f}% inflation, SS COLA annually, RMDs at age 73, 85% SS taxable, 2024 brackets. '
-            'Total Funded = Gross Income + Asset Draw — shows full spending need coverage before tax. '
-            'IRA/inherited IRA distributions taxable as ordinary income. Brokerage growth not taxed until realized. '
-            'Federal and state tax estimates only — actual results vary.')
-    c.drawString(LM, end_y-8, note)
+    # Footnote — 2 lines so nothing is cut off
+    c.setFillColor(GRAY_MD); c.setFont('Helvetica', 6.5)
+    line1 = (f'Assumptions: {ror*100:.1f}% growth, {inf*100:.1f}% inflation, SS COLA annually, RMDs at age 73 per IRS Uniform Lifetime Table, 85% SS taxable, 2024 brackets. '
+             'N/A = RMD not yet required (under age 73).')
+    line2 = ('IRA/inherited IRA distributions taxable as ordinary income. Brokerage earnings and draws included in tax base. '
+             'Federal and state tax estimates only — actual results vary.')
+    c.drawString(LM, end_y - 8, line1)
+    c.drawString(LM, end_y - 17, line2)
 
 
 def build_inherited_ira(c, pg, total_pg, client_data, projection, ctx):
@@ -816,39 +832,60 @@ def build_retirement_years(c, pg, total_pg, client_data, projection, ctx):
     # first 20 annual + every 5 after
     disp0 = [(r,False) for r in ret[:20]] + [(r,True) for i,r in enumerate(ret[20:]) if i%5==0]
     disp0_rows = [r for r,_ in disp0]
-    max_r = max_data_rows(has_note=True, has_sboxes=True, extra_overhead=12)
+    max_r = max_data_rows(has_note=True, has_sboxes=True, extra_overhead=46)  # 34pt double header + 12pt sbox buffer
     collapsed = smart_collapse(disp0_rows, max_r)
     # merge is_5 flags
     is5_map = {id(r): f for r,f in disp0}
     final = [(r, is5_map.get(id(r),False) or is_j) for r,is_j in collapsed]
 
-    cw = [w*PW for w in [0.075,0.065,0.065,0.055,0.065,0.065,0.065,0.065,0.065,0.08,0.075,0.065,0.09]]
-    aligns = ['L','R','R','R','R','R','R','R','R','R','R','R','R']
-    hdr_flat = ['Year/Ages',f'{cname} SS',f'{sname} SS','Pension/Other',f'{cname} IRA',f'{sname} IRA','Gross','Fed Tax','After Tax',f'Need {inf*100:.1f}%','+surp/-gap','Net Mo.','All Accts']
+    # 11 columns — Gross Income = all sources incl. asset draw, clean Gross→Tax→Net flow
+    cw = [w*PW for w in [0.08, 0.08, 0.08, 0.075, 0.07, 0.07, 0.09, 0.08, 0.09, 0.09, 0.10]]
+    aligns = ['L','R','R','R','R','R','R','R','R','R','R']
+    hdr_flat = [
+        'Year/Ages',
+        f'{cname}\nSocial Security',
+        f'{sname}\nSocial Security',
+        'Pension/\nOther',
+        f'{cname}\nIRA RMD',
+        f'{sname}\nIRA RMD',
+        'Gross\nIncome',
+        'Est.\nTaxes',
+        'Net\nIncome',
+        f'Need\n{inf*100:.1f}% inf.',
+        'All\nAccounts',
+    ]
 
     rows = []; odd = True
     for r,is_teal in final:
-        c_ss=r.get('client_ss',0); s_ss=r.get('spouse_ss',0); fixed=r.get('fixed_income',0)+r.get('inherited_ira_dist',0)
-        c_ira=r.get('client_rmd_taken',0)+r.get('client_ira_extra',0)
-        s_ira=r.get('spouse_rmd_taken',0)+r.get('spouse_ira_extra',0)
-        gross=r.get('gross_income',0); taxes=r.get('total_tax',0); net=r.get('net_income',0)
-        need=r.get('spending_need',0); surp=r.get('income_surplus',0) or 0
-        mo=r.get('net_monthly',0); port=r.get('total_portfolio',0)
-        ages=f"{r['client_age']}/{r.get('spouse_age','')}" if r.get('spouse_age') else str(r['client_age'])
-        surp_txt = fmt(surp, zero_dash=False) if surp>=0 else f'({fmt(abs(surp), zero_dash=False)})'
-        surp_fg = GREEN if surp>=0 else RED
-        bg = TEAL_JMP if is_teal else (WHITE if odd else GRAY_BG)
-        top = TEAL if is_teal else None
+        c_ss  = r.get('client_ss',0); s_ss = r.get('spouse_ss',0)
+        fixed = r.get('fixed_income',0) + r.get('inherited_ira_dist',0)
+        c_ira = r.get('client_rmd_taken',0) + r.get('client_ira_extra',0)
+        s_ira = r.get('spouse_rmd_taken',0) + r.get('spouse_ira_extra',0)
+        # Gross Income = ALL sources including asset drawdown (matches Page 6 logic)
+        adraw = r.get('brokerage_draw',0) + r.get('cash_draw',0)
+        gross = c_ss + s_ss + fixed + c_ira + s_ira + adraw
+        taxes = r.get('total_tax',0)
+        net   = gross - taxes
+        need  = r.get('spending_need',0)
+        port  = r.get('total_portfolio',0)
+        mo    = round(net / 12, 0)
+        ages  = f"{r['client_age']}/{r.get('spouse_age','')}" if r.get('spouse_age') else str(r['client_age'])
+        bg    = TEAL_JMP if is_teal else (WHITE if odd else GRAY_BG)
+        top   = TEAL if is_teal else None
         rows.append(([
-            (f"{r['year']}\n{ages}",GRAY_MD,False),
-            (fmt(c_ss),NAVY,True),(fmt(s_ss),NAVY,True),(fmt(fixed),NAVY,True),
-            (fmt(c_ira),BLUE,True),(fmt(s_ira),BLUE,True),
-            (fmt(gross),BLACK,False),(fmt(taxes),AMBER,True),(fmt(net),GREEN,True),
-            (fmt(need),PURPLE,True),(surp_txt,surp_fg,True),(fmt(mo),BLACK,False),(fmt(port),NAVY,True)
+            (f"{r['year']}\n{ages}", GRAY_MD, False),
+            (fmt(c_ss), NAVY, True), (fmt(s_ss), NAVY, True),
+            (fmt(fixed), NAVY, True),
+            (fmt(c_ira), BLUE, True), (fmt(s_ira), BLUE, True),
+            (fmt(gross, zero_dash=False), BLACK, True),
+            (fmt(taxes), AMBER, True),
+            (fmt(net, zero_dash=False), GREEN, True),
+            (fmt(need), PURPLE, True),
+            (fmt(port), NAVY, True),
         ], bg, top))
         odd = not odd
 
-    end_y = draw_table(c, y, cw, aligns, hdr_flat, rows)
+    end_y = draw_table(c, y, cw, aligns, hdr_flat, rows, hdr_height=34)
     draw_sboxes(c, end_y-6, [
         (NAVY,'Lifetime Gross',f"${summary.get('lifetime_gross',0):,.0f} total gross income."),
         (AMBER,'Lifetime Taxes',f"${summary.get('lifetime_federal_tax',0):,.0f} fed + ${summary.get('lifetime_state_tax',0):,.0f} state."),
@@ -880,7 +917,7 @@ def build_waterfall(c, pg, total_pg, client_data, projection, ctx):
 
     # Build display rows — all live years
     live = [r for r in years if not(not r.get('client_alive',True) and not r.get('spouse_alive',True) and r.get('gross_income',0)==0)]
-    max_r = max_data_rows(has_note=True, has_sboxes=True, extra_overhead=12)
+    max_r = max_data_rows(has_note=True, has_sboxes=True, extra_overhead=46)  # 34pt double header + sbox buffer
     # add phase rows count to overhead
     phases = set(); phase_count = 0
     for r in live:
@@ -888,9 +925,15 @@ def build_waterfall(c, pg, total_pg, client_data, projection, ctx):
     max_r = max(1, max_r - phase_count)
     collapsed = smart_collapse(live, max_r)
 
-    cw = [w*PW for w in [0.07,0.055,0.055,0.055,0.065,0.065,0.065,0.065,0.065,0.065,0.065,0.065,0.065,0.07]]
-    aligns = ['L','R','R','R','R','R','R','R','R','R','R','R','R','R']
-    hdr_flat = ['Year/Ages',f'{cname} sal.',f'{sname} sal.','Total emp.','SS','Pension','All fixed','Annual need','Port. gap',f'{cname} IRA',f'{sname} IRA','Invest.','Cash','From portfolio']
+    cw = [w*PW for w in [0.065,0.048,0.048,0.048,0.058,0.055,0.058,0.062,0.055,0.055,0.055,0.045,0.075,0.062,0.062]]
+    aligns = ['L','R','R','R','R','R','R','R','R','R','R','R','R','R','R']
+    hdr_flat = [
+        'Year/Ages', f'{cname}\nSalary', f'{sname}\nSalary', 'Total\nEmp.',
+        'Social\nSecurity', 'Pension/\nOther', 'All\nFixed',
+        'Annual\nNeed', f'{cname}\nIRA', f'{sname}\nIRA',
+        'Invest.', 'Cash',
+        'Gross\nIncome', 'Est.\nTaxes', 'Net\nIncome'
+    ]
 
     rows = []; last_phase = None; odd = True
     for r, is_jump in collapsed:
@@ -902,30 +945,33 @@ def build_waterfall(c, pg, total_pg, client_data, projection, ctx):
             rows.append(([
                 (f'— {label} —',WHITE,True)] + [('',WHITE,False)]*13,
                 ph_bg, None))
-        c_sal=r.get('client_salary',0); s_sal=r.get('spouse_salary',0)
-        ss=r.get('client_ss',0)+r.get('spouse_ss',0); fixed=r.get('fixed_income',0)+r.get('inherited_ira_dist',0); all_f=ss+fixed
-        need=r.get('spending_need',0); surp=r.get('income_surplus',0) or 0
-        c_ira=r.get('client_rmd_taken',0)+r.get('client_ira_extra',0)
-        s_ira=r.get('spouse_rmd_taken',0)+r.get('spouse_ira_extra',0)
-        invest=r.get('brokerage_draw',0); cash=r.get('cash_draw',0)
-        total_drawn=c_ira+s_ira+invest+cash; covered=surp>=0 and total_drawn==0
-        gap_txt = 'Covered ✓' if covered else fmt(abs(surp), zero_dash=False); gap_fg = GREEN if covered else RED
-        ages=f"{r['client_age']}/{r.get('spouse_age','')}" if r.get('spouse_age') else str(r['client_age'])
-        bg = TEAL_JMP if is_jump else (WHITE if odd else GRAY_BG)
-        top = TEAL if is_jump else None
+        c_sal  = r.get('client_salary',0); s_sal = r.get('spouse_salary',0)
+        ss     = r.get('client_ss',0)+r.get('spouse_ss',0)
+        fixed  = r.get('fixed_income',0)+r.get('inherited_ira_dist',0)
+        all_f  = ss + fixed
+        need   = r.get('spending_need',0)
+        c_ira  = r.get('client_rmd_taken',0)+r.get('client_ira_extra',0)
+        s_ira  = r.get('spouse_rmd_taken',0)+r.get('spouse_ira_extra',0)
+        invest = r.get('brokerage_draw',0); cash = r.get('cash_draw',0)
+        total_drawn = c_ira+s_ira+invest+cash
+        # Gross = all fixed + IRA + draws (full funded amount)
+        gross  = all_f + c_ira + s_ira + invest + cash
+        taxes  = r.get('total_tax',0)
+        net    = gross - taxes
+        ages   = f"{r['client_age']}/{r.get('spouse_age','')}" if r.get('spouse_age') else str(r['client_age'])
+        bg     = TEAL_JMP if is_jump else (WHITE if odd else GRAY_BG)
+        top    = TEAL if is_jump else None
         rows.append(([
-            (f"{r['year']}\n{ages}",GRAY_MD,False),
+            (f"{r['year']}\n{ages}", GRAY_MD, False),
             (fmt(c_sal),TEAL,True),(fmt(s_sal),TEAL,True),(fmt(c_sal+s_sal),TEAL,True),
             (fmt(ss),NAVY,True),(fmt(fixed),NAVY,True),(fmt(all_f),BLACK,True),
-            (fmt(need),PURPLE,True),(gap_txt,gap_fg,True),
-            (fmt(c_ira),BLUE,True),(fmt(s_ira),BLUE,True),
-            (fmt(invest),GREEN,True),(fmt(cash),GREEN,True),(fmt(total_drawn),BLACK,True)
+            (fmt(need),PURPLE,True),(fmt(c_ira),BLUE,True),(fmt(s_ira),BLUE,True),
+            (fmt(invest),GREEN,True),(fmt(cash),GREEN,True),
+            (fmt(gross,zero_dash=False),BLACK,True),(fmt(taxes),AMBER,True),(fmt(net,zero_dash=False),GREEN,True)
         ], bg, top))
         odd = not odd
 
-    end_y = draw_table(c, y, cw, aligns, hdr_flat, rows)
-
-    # Growth summary
+    end_y = draw_table(c, y, cw, aligns, hdr_flat, rows, hdr_height=34)
     sp = projection['summary'].get('starting_portfolio',0); ep = projection['summary'].get('ending_portfolio',0)
     draw_sboxes(c, end_y-6, [
         (NAVY,'Starting Portfolio',f'${sp:,.0f}'),
@@ -1145,8 +1191,8 @@ def build_schwab_statement(c, pg, total_pg, client_data, projection, ctx):
     # ── Helper: draw one account block ───────────────────────────────────
     def account_block(y, acct_name, acct_type, acct_num, open_bal, contributions,
                       earnings, withdrawals, close_bal, color, show_rmd_note=False):
-        BH = 18   # block header height (reduced from 22)
-        RH = 14   # row height (reduced from 17)
+        BH = 36   # block header height — tall enough for name + type on two clear lines
+        RH = 20   # row height — spacious so labels are readable
         rows = [
             ('Opening Balance', open_bal, BLACK, False),
             ('Contributions / Deposits', contributions, TEAL, False),
@@ -1159,14 +1205,14 @@ def build_schwab_statement(c, pg, total_pg, client_data, projection, ctx):
         # Account header bar
         c.setFillColor(color)
         c.rect(LM, y - BH, PW, BH, fill=1, stroke=0)
-        c.setFillColor(WHITE); c.setFont('Helvetica-Bold', 9)
-        c.drawString(LM + 12, y - BH + 7, acct_name)
-        c.setFillColor(colors.HexColor('#FFFFFF90')); c.setFont('Helvetica', 7.5)
-        c.drawString(LM + 12, y - BH + 1, f'{acct_type}  ·  {acct_num}')
         c.setFillColor(WHITE); c.setFont('Helvetica-Bold', 10)
-        c.drawRightString(PAGE_W - RM - 12, y - BH + 7, fmt(close_bal, zero_dash=False))
-        c.setFillColor(colors.HexColor('#FFFFFF90')); c.setFont('Helvetica', 7)
-        c.drawRightString(PAGE_W - RM - 12, y - BH + 1, 'Current Balance')
+        c.drawString(LM + 12, y - 14, acct_name)
+        c.setFillColor(colors.HexColor('#FFFFFF90')); c.setFont('Helvetica', 8)
+        c.drawString(LM + 12, y - 26, f'{acct_type}  ·  {acct_num}')
+        c.setFillColor(WHITE); c.setFont('Helvetica-Bold', 11)
+        c.drawRightString(PAGE_W - RM - 12, y - 14, fmt(close_bal, zero_dash=False))
+        c.setFillColor(colors.HexColor('#FFFFFF90')); c.setFont('Helvetica', 7.5)
+        c.drawRightString(PAGE_W - RM - 12, y - 26, 'Current Balance')
         y -= BH
 
         # Detail rows
