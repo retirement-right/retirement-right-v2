@@ -95,12 +95,60 @@ def run_projection(client_data: dict) -> dict:
     # ── Step 8: RMD recalculation with real prior-year balances ──────────
     rmd_table = build_rmd_table(client_data, phase_table, portfolio_table)
 
+    # ── Step 8b: Second waterfall pass with corrected RMD amounts ─────────
+    # Now that we have real portfolio balances, RMDs are correctly calculated.
+    # Re-run waterfall so client_rmd_taken/spouse_rmd_taken reflect true IRS amounts.
+    waterfall_table = build_waterfall_table(
+        client_data, phase_table,
+        employment_table, ss_table, fixed_table, rmd_table,
+        initial_balances,
+    )
+
+    # ── Step 8c: Re-run portfolio with corrected draws ─────────────────────
+    portfolio_table = build_portfolio_table(
+        client_data, phase_table,
+        employment_table, waterfall_table, rmd_table,
+    )
+
+    # ── Step 8d: Third RMD pass — converges to exact IRS Uniform Lifetime Table ──
+    # Prior-year closing balances from 8c are now accurate.
+    # This produces RMD amounts = prior_year_close / IRS_period exactly.
+    rmd_table = build_rmd_table(client_data, phase_table, portfolio_table)
+
+    # ── Step 8e: Final waterfall with exact IRS RMDs ────────────────────────
+    waterfall_table = build_waterfall_table(
+        client_data, phase_table,
+        employment_table, ss_table, fixed_table, rmd_table,
+        initial_balances,
+    )
+
+    # ── Step 8f: Final portfolio pass ───────────────────────────────────────
+    portfolio_table = build_portfolio_table(
+        client_data, phase_table,
+        employment_table, waterfall_table, rmd_table,
+    )
+
     # ── Step 9: Tax estimates using gross income from waterfall ───────────
-    # Build combined income table for tax engine
-    combined = merge_tables(waterfall_table, ss_table, fixed_table)
-    # Add ira_distributions key for tax engine
+    # Build combined income table for tax engine — include portfolio earnings
+    # Option B: brokerage draws + all non-IRA earnings are taxable for planning purposes
+    # (MM interest, brokerage growth, annuity growth all treated as taxable annually)
+    combined = merge_tables(waterfall_table, ss_table, fixed_table, portfolio_table)
     for row in combined:
-        row["ira_distributions"] = row.get("ira_distributions", 0)
+        base_ira = row.get('ira_distributions', 0)
+        # Add brokerage draws (realized, taxable as LTCG/ordinary income)
+        brok_draw  = row.get('brokerage_draw', 0) or 0
+        # Add non-IRA account earnings (interest/growth taxable annually)
+        brok_earn  = row.get('brokerage_earn', 0) or 0
+        cash_earn  = row.get('cash_earn', 0) or 0
+        other_earn = row.get('other_earn', 0) or 0
+        # Annuity growth — deferred, NOT taxable until distributed
+        # Home appreciation — NOT taxable until sale
+        # IRA earnings already captured via RMD/draws — don't double count
+        taxable_additions = brok_draw + brok_earn + cash_earn + other_earn
+        row['ira_distributions'] = base_ira
+        row['taxable_brokerage_income'] = round(taxable_additions, 2)
+        # gross_income for tax = waterfall gross + brokerage taxable income
+        row['gross_income_for_tax'] = round(row.get('gross_income', 0) + taxable_additions, 2)
 
     tax_table = build_tax_table(client_data, phase_table, combined)
 
@@ -118,7 +166,10 @@ def run_projection(client_data: dict) -> dict:
 
     # ── Add net income to each year ────────────────────────────────────────
     for row in final:
-        row["net_income"]    = round(row.get("gross_income", 0) - row.get("total_tax", 0), 2)
+        # net_income = total cash funded - taxes paid
+        # total_funded = gross_income (taxable) + brokerage_draw (non-taxable draw)
+        total_funded = round(row.get('gross_income', 0) + row.get('brokerage_draw', 0) + row.get('cash_draw', 0), 2)
+        row["net_income"]    = round(total_funded - row.get("total_tax", 0), 2)
         row["net_monthly"]   = round(row["net_income"] / 12, 2)
 
     # ── Summary totals ─────────────────────────────────────────────────────
