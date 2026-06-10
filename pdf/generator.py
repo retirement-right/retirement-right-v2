@@ -1521,6 +1521,10 @@ def build_estate_summary(c, pg, total_pg, client_data, projection, ctx):
         ('Home Equity',          home_st,   home_end,   GOLD),
     ]
 
+    cw = [PW*w for w in [0.26, 0.15, 0.16, 0.13, 0.30]]
+    aligns = ['L', 'R', 'R', 'R', 'L']
+    hdrs = ['Asset', 'Current Value', f'Projected ({proj_yrs} yrs)', 'Growth %', 'Notes']
+
     tbl_rows = []
     total_curr_tbl = 0; total_proj_tbl = 0
     for lbl, curr, proj_v, color in rows_data:
