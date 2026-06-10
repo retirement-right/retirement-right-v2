@@ -185,35 +185,59 @@ def build_tax_table(
     ss_taxable_pct = assumptions.get("ss_taxable_pct", 0.85)
     inflation_pct  = assumptions.get("inflation_pct", 0.025)
     analysis_year  = int(meta["analysis_date"][:4])
+    has_spouse     = client_data.get("spouse") is not None
 
     # Build income lookup
     income_by_year = {r["year"]: r for r in income_table}
+    # alive flags come from income_table (merged from ss engine)
+    alive_by_year  = income_by_year
 
     results = []
     for row in phase_table:
         year = row["year"]
         inc  = income_by_year.get(year, {})
+        alv  = alive_by_year.get(year, {})
 
-        gross        = inc.get("gross_income", 0)
-        ss_income    = inc.get("total_ss", 0)
-        ira_dists    = inc.get("ira_distributions", 0)
+        # ── Filing status switches to single after first spouse dies ──────
+        client_alive = alv.get("client_alive", True)
+        spouse_alive = alv.get("spouse_alive", True)
+
+        if not has_spouse:
+            year_filing_status = "single"
+        elif client_alive and spouse_alive:
+            year_filing_status = filing_status      # MFJ while both alive
+        elif client_alive and not spouse_alive:
+            year_filing_status = "single"           # Client widowed
+        elif not client_alive and spouse_alive:
+            year_filing_status = "single"           # Spouse widowed
+        else:
+            year_filing_status = "single"           # Both deceased
+
+        # Use gross_income_for_tax which includes brokerage draws + non-IRA earnings
+        # Falls back to gross_income for backwards compatibility
+        gross     = inc.get("gross_income_for_tax", inc.get("gross_income", 0))
+        ss_income = inc.get("total_ss", 0)
+        ira_dists = inc.get("ira_distributions", 0)
 
         tax_result = estimate_taxes(
-            year           = year,
-            gross_income   = gross,
-            ss_income      = ss_income,
-            ss_taxable_pct = ss_taxable_pct,
+            year              = year,
+            gross_income      = gross,
+            ss_income         = ss_income,
+            ss_taxable_pct    = ss_taxable_pct,
             ira_distributions = ira_dists,
-            filing_status  = filing_status,
-            state          = state,
-            tax_year       = tax_year,
-            inflation_pct  = inflation_pct,
-            analysis_year  = analysis_year,
+            filing_status     = year_filing_status,
+            state             = state,
+            tax_year          = tax_year,
+            inflation_pct     = inflation_pct,
+            analysis_year     = analysis_year,
         )
 
         results.append({
             **row,
             **tax_result,
+            "filing_status_used":        year_filing_status,
+            "gross_income_for_tax":      inc.get("gross_income_for_tax", inc.get("gross_income", 0)),
+            "taxable_brokerage_income":  inc.get("taxable_brokerage_income", 0),
         })
 
     return results
