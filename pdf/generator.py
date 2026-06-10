@@ -593,13 +593,23 @@ def build_snapshot(c, pg, total_pg, client_data, projection, ctx):
     elif brok_total > 0:
         ai_rows.append(('Taxable Brokerage', f'${brok_total:,.0f}', False))
 
-    for k,lbl in [('cash','Cash & Savings'),('annuity_balance','Annuity'),('real_estate_equity','Real Estate Equity'),('other_client','Other Assets')]:
+    for k,lbl in [('cash','Cash & Savings'),('annuity_balance','Annuity'),('other_client','Other Assets')]:
         v = assets.get(k,0) or 0
         if v > 0: ai_rows.append((lbl, f'${v:,.0f}', False))
 
     total_inv = total_investable(assets); home = assets.get('home_value',0) or 0
+    mortgage = client_data.get('assets',{}).get('mortgage_balance',0) or 0
+    home_equity = home - mortgage if mortgage else home
     ai_rows.append(('Total Investable', f'${total_inv:,.0f}', False))
-    if home: ai_rows += [('Home (non-investable)', f'${home:,.0f}', False),('Total Net Assets', f'${total_inv+home:,.0f}', False)]
+    if home:
+        home_lbl = f'Home Equity (non-investable)' if mortgage else 'Home (non-investable)'
+        home_disp = f'${home_equity:,.0f}' if mortgage else f'${home:,.0f}'
+        ai_rows += [(home_lbl, home_disp, False),('Total Net Assets', f'${total_inv+home_equity:,.0f}', False)]
+
+    # Add footnote row explaining starting portfolio difference
+    start_p = summary.get('starting_portfolio', 0) or 0
+    if start_p > total_inv:
+        ai_rows.append(('† Starting Portfolio includes working-year', f'401k growth & contributions', True))
 
     for i,(lbl,val,is_sub) in enumerate(ai_rows):
         bg = WHITE if i%2==0 else GRAY_BG
@@ -712,7 +722,9 @@ def build_income_tax(c, pg, total_pg, client_data, projection, ctx):
     c.drawString(LM, FOOTER_Y + 16,
         'Tax Disclosure: IRA and inherited IRA distributions taxable as ordinary income. '
         'Brokerage growth not taxed until realized. SS taxation estimated under current assumptions. '
-        'Federal and state calculations are estimates only. Actual results vary based on future tax law, deductions, filing status, and individual circumstances.')
+        'Federal and state calculations are estimates only. Actual results will vary based on future tax law changes, '
+        'deductions, filing status, and individual circumstances. This report is for educational and planning purposes '
+        'only and does not constitute tax, legal, investment, or Social Security advice. Consult a qualified CPA or advisor.')
 
 
 def build_income_projection(c, pg, total_pg, client_data, projection, ctx):
@@ -984,7 +996,9 @@ def build_waterfall(c, pg, total_pg, client_data, projection, ctx):
         phase = r.get('phase','')
         if phase != last_phase:
             last_phase = phase
-            label = {'working':'BOTH WORKING','transitioning':'TRANSITIONING'}.get(phase,'FULLY RETIRED')
+            _phase_labels = {'working':'— WORKING YEARS —','transitioning':'— TRANSITIONING TO RETIREMENT —',
+                              'partial_retirement':'— PARTIAL RETIREMENT —','retirement':'— FULLY RETIRED —'}
+            label = _phase_labels.get(phase, f'— {phase.replace("_"," ").upper()} —')
             ph_bg = TEAL if 'RETIRED' in label else NAVY_MD
             rows.append(([
                 (f'— {label} —',WHITE,True)] + [('',WHITE,False)]*13,
@@ -1486,32 +1500,16 @@ def build_estate_summary(c, pg, total_pg, client_data, projection, ctx):
         return f'+{g:.1f}%' if g >= 0 else f'{g:.1f}%'
 
     def note_for(lbl):
-        if 'Annuity'   in lbl: return 'Deferred accumulation — no withdrawals assumed'
-        if 'Home'      in lbl: return f'Appreciates at {ror*100:.1f}%/yr — not a spending asset'
-        if 'Inherited' in lbl: return '10-Year Rule — fully distributed by 2035'
-        if 'Money'     in lbl: return 'Sub-account of brokerage — included in brokerage total'
-        if 'IRA'       in lbl: return 'RMD withdrawals reduce balance from age 73'
-        if 'Brokerage' in lbl: return 'Draws fund spending gap per waterfall strategy'
-        return ''
-
-    # Table rows — investable first, then legacy
-    rows_data = [
-        # label,          current,   projected,  color,   section
-        ('Client IRA / 401(k)',  c_ira_st,  c_ira_end,  NAVY),
-        ('Spouse IRA / 401(k)',  s_ira_st,  s_ira_end,  TEAL),
-        ('Inherited IRA',        inh_st,    inh_end,    AMBER),
-        ('Joint Brokerage',      brok_st,   brok_end,   GREEN),
-        ('Money Market',         mm_st,     0,          GRAY_MD),  # sub-acct, projected in brokerage
-        ('Cash & Savings',       cash_st,   cash_end,   GRAY_MD),
-        ('Other Assets',         oth_st,    oth_end,    GRAY_MD),
-        ('Deferred Annuity',     ann_st,    ann_end,    PURPLE),
-        ('Home Equity',          home_st,   home_end,   GOLD),
-    ]
-
-    cw = [PW*w for w in [0.26, 0.15, 0.16, 0.13, 0.30]]
-    aligns = ['L', 'R', 'R', 'R', 'L']
-    hdrs = ['Asset', 'Current Value', f'Projected ({proj_yrs} yrs)', 'Growth %', 'Notes']
-
+        notes = {
+            'Client IRA / 401(k)':  'RMD withdrawals begin at age 73',
+            'Spouse IRA / 401(k)':  'RMD withdrawals begin at age 73',
+            'Inherited IRA':        'Must fully distribute by year 10',
+            'Joint Brokerage':      'Draws fund spending gap as needed',
+            'Cash & Savings':       'Reserve — drawn last',
+            'Deferred Annuity':     'Not drawn — legacy asset',
+            'Home Equity':          f'Appreciates at {ror*100:.1f}%/yr · not drawn',
+        }
+        return notes.get(lbl, '')
     tbl_rows = []
     total_curr_tbl = 0; total_proj_tbl = 0
     for lbl, curr, proj_v, color in rows_data:
