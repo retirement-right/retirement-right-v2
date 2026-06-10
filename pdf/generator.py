@@ -1231,7 +1231,7 @@ def build_schwab_statement(c, pg, total_pg, client_data, projection, ctx):
         c.setFillColor(colors.HexColor('#FFFFFF90')); c.setFont('Helvetica', 8)
         c.drawString(LM + 12, y - 26, f'{acct_type}  ·  {acct_num}')
         c.setFillColor(WHITE); c.setFont('Helvetica-Bold', 11)
-        close_disp = fmt(close_bal, zero_dash=False) if close_bal else '$0'
+        close_disp = fmt(close_bal, zero_dash=False) if close_bal else '_'
         c.drawRightString(PAGE_W - RM - 12, y - 14, close_disp)
         c.setFillColor(colors.HexColor('#FFFFFF90')); c.setFont('Helvetica', 7.5)
         c.drawRightString(PAGE_W - RM - 12, y - 26, 'Current Balance')
