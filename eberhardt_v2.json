@@ -1,6 +1,5 @@
 {
   "schema_version": "2.0",
-
   "meta": {
     "analysis_date": "2026-06-06",
     "prepared_by": "Retirement-Right Advisor",
@@ -8,10 +7,9 @@
     "firm_address": "1820 E Ray Road, Suite A-108, Chandler, AZ 85225",
     "report_title": "Comprehensive Retirement Blueprint",
     "confidential": true,
-    "notes": "Planning Horizons: Michael to age 88. Karen to age 90. Client health: Fair. Spouse health: Good.",
+    "notes": "Planning Horizons: Michael to age 88. Karen to age 90. Client health: Fair. Spouse health: Good. IRA detail: Karen Schwab IRA $34,200 + Karen Athene IRA Annuity (pre-tax) $132,000 = $166,200 total IRA.",
     "legacy_notes": "Remainder of estate to Eberhardt Children evenly after last spouse dies"
   },
-
   "client": {
     "first_name": "Michael",
     "last_name": "Eberhardt",
@@ -19,7 +17,7 @@
     "state": "AZ",
     "filing_status": "married_filing_jointly",
     "health": "fair",
-    "planning_horizon_age": 88,
+    "planning_horizon_age": 90,
     "retirement": {
       "status": "retired",
       "date": null,
@@ -28,13 +26,12 @@
     },
     "employment": null
   },
-
   "spouse": {
     "first_name": "Karen",
     "last_name": "Eberhardt",
     "dob": "1955-05-25",
     "health": "good",
-    "planning_horizon_age": 90,
+    "planning_horizon_age": 92,
     "retirement": {
       "status": "retired",
       "date": null,
@@ -43,16 +40,13 @@
     },
     "employment": null
   },
-
   "assumptions": {
     "inflation_pct": 0.025,
     "rate_of_return": 0.04,
     "income_need_annual": 120000,
     "tax_year": 2024,
-    "ss_taxable_pct": 0.85,
-    "projection_end_age": 91
+    "ss_taxable_pct": 0.85
   },
-
   "income": {
     "social_security": {
       "client": {
@@ -75,11 +69,10 @@
     "annuity": null,
     "other_income": null
   },
-
   "assets": {
     "ira_traditional": {
       "client_balance": 0,
-      "spouse_balance": 135000
+      "spouse_balance": 166200
     },
     "ira_roth": {
       "client_balance": 0,
@@ -95,19 +88,30 @@
     "brokerage": {
       "total_balance": 1315000,
       "sub_accounts": [
-        { "label": "Managed Brokerage", "balance": 515000 },
-        { "label": "Money Market",      "balance": 800000 }
+        {
+          "label": "Managed Brokerage",
+          "balance": 515000
+        },
+        {
+          "label": "Money Market",
+          "balance": 800000
+        }
       ]
     },
     "annuity_value": 750000,
-    "real_estate_equity": 800000,
+    "real_estate_equity": 0,
     "primary_home_value": 800000,
     "cash_and_savings": {
       "client_balance": 0,
       "spouse_balance": 0
     },
     "other_assets": [
-      { "label": "Other Assets", "balance": 20000, "investable": true, "growth_rate": 0.0 }
+      {
+        "label": "Other Assets",
+        "balance": 20000,
+        "investable": true,
+        "growth_rate": 0.0
+      }
     ]
   }
 }
